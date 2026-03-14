@@ -29,7 +29,6 @@ export class SpeakerPlayback {
       if (this.destroyed) return;
       try {
         this.sourceBuffer = this.mediaSource.addSourceBuffer(AUDIO_MIME_TYPE);
-        this.sourceBuffer.mode = "sequence";
         this.sourceBuffer.addEventListener("updateend", () => this.flush());
         this.flush();
       } catch (e) {
@@ -44,11 +43,6 @@ export class SpeakerPlayback {
     if (this.destroyed) return;
     this.queue.push(data);
     this.flush();
-
-    // Resume playback if the audio element paused while waiting for data
-    if (this.audio.paused) {
-      this.audio.play().catch(() => {});
-    }
   }
 
   private flush() {
