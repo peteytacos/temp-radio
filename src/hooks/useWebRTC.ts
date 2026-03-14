@@ -32,9 +32,9 @@ export function useWebRTC(
 
   const setupRemoteAudio = useCallback((remoteId: number, pc: RTCPeerConnection) => {
     pc.ontrack = (event) => {
-      console.log(`[WebRTC] ontrack fired for peer ${remoteId}`, {
-        tracks: event.streams[0]?.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, muted: t.muted, readyState: t.readyState })),
-      });
+      const track = event.streams[0]?.getTracks()[0];
+      console.log(`[WebRTC] ontrack peer ${remoteId}: kind=${track?.kind} enabled=${track?.enabled} muted=${track?.muted} readyState=${track?.readyState}`);
+
       const ctx = audioCtxRef.current;
       if (!ctx) { console.warn("[WebRTC] No AudioContext in ontrack"); return; }
       const stream = event.streams[0];
@@ -56,6 +56,23 @@ export function useWebRTC(
         state.gain = gain;
       }
       setRemoteAnalysers((prev) => new Map(prev).set(remoteId, analyser));
+
+      // Check for actual audio data every 2s
+      const dataCheck = setInterval(() => {
+        if (pc.connectionState !== "connected") { clearInterval(dataCheck); return; }
+        // Check analyser for non-silence
+        const buf = new Uint8Array(analyser.fftSize);
+        analyser.getByteTimeDomainData(buf);
+        const hasAudio = buf.some(v => v !== 128);
+        // Check RTP stats
+        pc.getStats().then(stats => {
+          stats.forEach(report => {
+            if (report.type === "inbound-rtp" && report.kind === "audio") {
+              console.log(`[WebRTC] Peer ${remoteId} inbound audio: bytes=${report.bytesReceived} packets=${report.packetsReceived} hasAudioData=${hasAudio}`);
+            }
+          });
+        });
+      }, 2000);
     };
 
     pc.onconnectionstatechange = () => {
