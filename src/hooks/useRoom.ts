@@ -84,6 +84,8 @@ export function useRoom(
               new Map(prev).set(msg.id, msg.color)
             );
             setParticipantCount(msg.count);
+            // Pre-create pipeline so audio can start immediately when they speak
+            createPipeline(msg.id);
             break;
 
           case "participant_left":
@@ -103,27 +105,20 @@ export function useRoom(
 
           case "speaking_start":
             setActiveSpeakers((prev) => new Set(prev).add(msg.id));
-            createPipeline(msg.id);
+            // Pipeline should already exist (pre-created on join), create as fallback
+            if (!pipelinesRef.current.has(msg.id)) {
+              createPipeline(msg.id);
+            }
             break;
 
-          case "speaking_stop": {
+          case "speaking_stop":
             setActiveSpeakers((prev) => {
               const next = new Set(prev);
               next.delete(msg.id);
               return next;
             });
-            // Let pipeline finish playing all buffered audio, then destroy
-            const stoppedPipeline = pipelinesRef.current.get(msg.id);
-            if (stoppedPipeline) {
-              stoppedPipeline.finish().then(() => {
-                // Only destroy if this is still the same pipeline (not replaced by a new speaking session)
-                if (pipelinesRef.current.get(msg.id) === stoppedPipeline) {
-                  destroyPipeline(msg.id);
-                }
-              });
-            }
+            // Pipeline stays alive for reuse — only destroyed on participant leave
             break;
-          }
 
           case "room_closed":
             setRoomClosed(true);
