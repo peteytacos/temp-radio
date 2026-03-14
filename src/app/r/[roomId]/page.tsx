@@ -99,7 +99,7 @@ export default function RoomPage() {
     const url = `${window.location.origin}/r/${roomId}`;
     if (navigator.share) {
       try {
-        await navigator.share({ title: "Temp Radio", url });
+        await navigator.share({ title: "Squelch", url });
       } catch {
         // User cancelled
       }
@@ -239,7 +239,7 @@ export default function RoomPage() {
             border: "1px solid rgba(38, 83, 39, 0.25)",
           }}
         >
-          TEMP RADIO COMMS UNIT
+          SQUELCH TEMP COMMS
         </div>
 
         {/* Waveform */}

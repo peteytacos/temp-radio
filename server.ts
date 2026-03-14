@@ -185,4 +185,4 @@ const server = Bun.serve<WSData>({
   },
 });
 
-console.log(`📻 Temp Radio running on http://localhost:${server.port}`);
+console.log(`📻 Squelch running on http://localhost:${server.port}`);

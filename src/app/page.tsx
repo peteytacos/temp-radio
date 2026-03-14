@@ -31,7 +31,7 @@ export default function HomePage() {
           color: "rgba(124, 229, 128, 0.4)",
         }}
       >
-        Creating station...
+        Tuning in...
       </div>
     </div>
   );
