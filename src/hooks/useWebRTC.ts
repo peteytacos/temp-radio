@@ -47,7 +47,7 @@ export function useWebRTC(
       gain.gain.value = 0;
 
       source.connect(analyser);
-      source.connect(gain);
+      analyser.connect(gain);
       gain.connect(ctx.destination);
 
       const state = peersRef.current.get(remoteId);
