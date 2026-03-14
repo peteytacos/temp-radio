@@ -2,7 +2,7 @@ import next from "next";
 import { createServer } from "http";
 import { parse } from "url";
 import { WebSocketServer, WebSocket } from "ws";
-import { getRoom, destroyRoom } from "./src/lib/rooms";
+import { getRoom, disconnectBroadcaster } from "./src/lib/rooms";
 
 const dev = process.env.NODE_ENV !== "production";
 const app = next({ dev });
@@ -35,7 +35,7 @@ app.prepare().then(() => {
   wss.on("connection", (ws: WebSocket, roomId: string, role: string, token?: string) => {
     const room = getRoom(roomId);
 
-    if (!room) {
+    if (!room || room.closed) {
       ws.close(4004, "Room not found");
       return;
     }
@@ -54,6 +54,7 @@ app.prepare().then(() => {
       room.broadcaster = ws;
       let isFirstChunk = true;
 
+      // Tell everyone broadcaster is live
       broadcastToRoom(roomId, { type: "status", broadcasting: true });
 
       ws.on("message", (data: Buffer) => {
@@ -70,11 +71,13 @@ app.prepare().then(() => {
       });
 
       ws.on("close", () => {
-        broadcastToListeners(roomId, { type: "room_closed" });
-        destroyRoom(roomId);
+        // Broadcaster disconnected — room stays alive, just mark offline
+        disconnectBroadcaster(roomId);
+        broadcastListenerCount(roomId);
       });
 
     } else {
+      // Listener
       room.listeners.add(ws);
 
       ws.send(JSON.stringify({
@@ -82,7 +85,8 @@ app.prepare().then(() => {
         broadcasting: room.broadcaster !== null,
       }));
 
-      if (room.initSegment && ws.readyState === WebSocket.OPEN) {
+      // Send cached init segment so late joiners can decode
+      if (room.initSegment && room.broadcaster && ws.readyState === WebSocket.OPEN) {
         ws.send(room.initSegment);
       }
 
@@ -105,15 +109,6 @@ app.prepare().then(() => {
     }
     if (room.broadcaster?.readyState === WebSocket.OPEN) {
       room.broadcaster.send(payload);
-    }
-  }
-
-  function broadcastToListeners(roomId: string, msg: object) {
-    const room = getRoom(roomId);
-    if (!room) return;
-    const payload = JSON.stringify(msg);
-    for (const l of room.listeners) {
-      if (l.readyState === WebSocket.OPEN) l.send(payload);
     }
   }
 

@@ -6,7 +6,7 @@ import { useAudioAnalyser } from "./useAudioAnalyser";
 import { AUDIO_MIME_TYPE, TIMESLICE_MS } from "@/lib/audio-config";
 import type { WSMessage } from "@/lib/ws-protocol";
 
-type BroadcasterState = "idle" | "connecting" | "live" | "error";
+type BroadcasterState = "idle" | "connecting" | "live" | "error" | "closed";
 
 export function useBroadcaster(roomId: string, token: string) {
   const [state, setState] = useState<BroadcasterState>("idle");
@@ -14,21 +14,41 @@ export function useBroadcaster(roomId: string, token: string) {
   const [wsUrl, setWsUrl] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const { analyser, createAnalyser, vuLevel, cleanup: cleanupAnalyser } = useAudioAnalyser();
 
-  const { send, close: closeWs, state: wsState } = useWebSocket(wsUrl, {
+  const { send, close: closeWs } = useWebSocket(wsUrl, {
     onMessage: (event) => {
       if (typeof event.data === "string") {
         const msg: WSMessage = JSON.parse(event.data);
         if (msg.type === "listeners") {
           setListenerCount(msg.count);
+        } else if (msg.type === "room_closed") {
+          setState("closed");
         }
       }
     },
     onClose: () => {
-      setState("idle");
+      if (state === "live") {
+        // WS closed while live — just go back to idle (room persists)
+        stopRecording();
+        setState("idle");
+      }
     },
   });
+
+  const stopRecording = useCallback(() => {
+    if (recorderRef.current?.state === "recording") {
+      recorderRef.current.stop();
+    }
+    recorderRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    cleanupAnalyser();
+    audioCtxRef.current?.close();
+    audioCtxRef.current = null;
+    setWsUrl(null);
+  }, [cleanupAnalyser]);
 
   const goLive = useCallback(async () => {
     try {
@@ -37,10 +57,10 @@ export function useBroadcaster(roomId: string, token: string) {
       streamRef.current = stream;
 
       const audioCtx = new AudioContext();
+      audioCtxRef.current = audioCtx;
       const source = audioCtx.createMediaStreamSource(stream);
       const analyserNode = createAnalyser(audioCtx);
       source.connect(analyserNode);
-      // Don't connect to destination to avoid echo
 
       setWsUrl(`/ws/${roomId}?role=broadcaster&token=${token}`);
       setState("live");
@@ -48,9 +68,7 @@ export function useBroadcaster(roomId: string, token: string) {
       // Small delay to ensure WS is connected before starting recorder
       await new Promise((r) => setTimeout(r, 300));
 
-      const recorder = new MediaRecorder(stream, {
-        mimeType: AUDIO_MIME_TYPE,
-      });
+      const recorder = new MediaRecorder(stream, { mimeType: AUDIO_MIME_TYPE });
       recorderRef.current = recorder;
 
       recorder.ondataavailable = (event) => {
@@ -67,22 +85,42 @@ export function useBroadcaster(roomId: string, token: string) {
   }, [roomId, token, send, createAnalyser]);
 
   const endBroadcast = useCallback(() => {
-    recorderRef.current?.stop();
-    streamRef.current?.getTracks().forEach((t) => t.stop());
+    stopRecording();
     closeWs();
-    cleanupAnalyser();
     setState("idle");
-    setWsUrl(null);
-  }, [closeWs, cleanupAnalyser]);
+  }, [closeWs, stopRecording]);
 
-  // Cleanup on unmount
+  const closeSession = useCallback(async () => {
+    stopRecording();
+    closeWs();
+    try {
+      await fetch("/api/close-room", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId, token }),
+      });
+    } catch {
+      // Best effort
+    }
+    setState("closed");
+  }, [roomId, token, closeWs, stopRecording]);
+
   useEffect(() => {
     return () => {
       recorderRef.current?.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      audioCtxRef.current?.close();
       cleanupAnalyser();
     };
   }, [cleanupAnalyser]);
 
-  return { state, goLive, endBroadcast, analyser, vuLevel, listenerCount };
+  return {
+    state,
+    goLive,
+    endBroadcast,
+    closeSession,
+    analyser,
+    vuLevel,
+    listenerCount,
+  };
 }
