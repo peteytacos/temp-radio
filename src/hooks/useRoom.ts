@@ -113,9 +113,14 @@ export function useRoom(
               return next;
             });
             // Let pipeline finish playing all buffered audio, then destroy
-            const pipeline = pipelinesRef.current.get(msg.id);
-            if (pipeline) {
-              pipeline.finish().then(() => destroyPipeline(msg.id));
+            const stoppedPipeline = pipelinesRef.current.get(msg.id);
+            if (stoppedPipeline) {
+              stoppedPipeline.finish().then(() => {
+                // Only destroy if this is still the same pipeline (not replaced by a new speaking session)
+                if (pipelinesRef.current.get(msg.id) === stoppedPipeline) {
+                  destroyPipeline(msg.id);
+                }
+              });
             }
             break;
           }

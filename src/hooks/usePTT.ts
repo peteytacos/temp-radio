@@ -31,9 +31,9 @@ export function usePTT(
   const startPTT = useCallback(async () => {
     if (isSpeakingRef.current || !isConnected || !audioCtx) return;
 
-    // Resume AudioContext in case browser auto-suspended it during inactivity
+    // Resume AudioContext without await to preserve user gesture chain for getUserMedia
     if (audioCtx.state === "suspended") {
-      await audioCtx.resume();
+      audioCtx.resume();
     }
 
     playSquelch();
@@ -83,16 +83,16 @@ export function usePTT(
     const recorder = recorderRef.current;
     recorderRef.current = null;
 
+    playSquelch();
+
     if (recorder?.state === "recording") {
       // Wait for the final dataavailable to fire before signaling stop
       recorder.onstop = () => {
         send(JSON.stringify({ type: "speaking_stop" }));
-        playSquelch();
       };
       recorder.stop();
     } else {
       send(JSON.stringify({ type: "speaking_stop" }));
-      playSquelch();
     }
   }, [send, playSquelch]);
 
