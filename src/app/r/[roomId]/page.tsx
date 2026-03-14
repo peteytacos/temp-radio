@@ -239,7 +239,7 @@ export default function RoomPage() {
             border: "1px solid rgba(38, 83, 39, 0.25)",
           }}
         >
-          SQUELCH TEMP COMMS
+          SQUELCH TEMP RADIO COMMS
         </div>
 
         {/* Waveform */}
