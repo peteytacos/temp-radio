@@ -8,19 +8,19 @@ const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
 interface PeerState {
   pc: RTCPeerConnection;
   analyser: AnalyserNode | null;
+  gainNode: GainNode | null;
 }
 
 export function useWebRTC(
   audioCtx: AudioContext | null,
   micStream: MediaStream | null,
-  myId: number | null,
-  participants: Map<number, string>,
-  send: (data: string) => void,
-  isConnected: boolean
+  send: (data: string) => void
 ) {
   const peersRef = useRef<Map<number, PeerState>>(new Map());
   const audioCtxRef = useRef(audioCtx);
   audioCtxRef.current = audioCtx;
+  const micStreamRef = useRef(micStream);
+  micStreamRef.current = micStream;
   const sendRef = useRef(send);
   sendRef.current = send;
 
@@ -28,34 +28,14 @@ export function useWebRTC(
     Map<number, AnalyserNode>
   >(new Map());
 
-  // Process mic through a GainNode for PTT muting (avoids iOS track.enabled issues)
-  const gainRef = useRef<GainNode | null>(null);
-  const processedStreamRef = useRef<MediaStream | null>(null);
-
-  useEffect(() => {
-    if (!audioCtx || !micStream) return;
-
-    const source = audioCtx.createMediaStreamSource(micStream);
-    const gain = audioCtx.createGain();
-    gain.gain.value = 0; // Start muted
-    const dest = audioCtx.createMediaStreamDestination();
-
-    source.connect(gain);
-    gain.connect(dest);
-
-    gainRef.current = gain;
-    processedStreamRef.current = dest.stream;
-  }, [audioCtx, micStream]);
-
   const createPeerConnection = useCallback(
     (remoteId: number): PeerState => {
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-      // Add processed (gain-controlled) audio track to the connection
-      const stream = processedStreamRef.current;
-      if (stream) {
-        for (const track of stream.getAudioTracks()) {
-          pc.addTrack(track, stream);
+      // Add raw mic track directly — no processing, no toggling
+      if (micStreamRef.current) {
+        for (const track of micStreamRef.current.getAudioTracks()) {
+          pc.addTrack(track, micStreamRef.current);
         }
       }
 
@@ -72,6 +52,8 @@ export function useWebRTC(
         }
       };
 
+      let peerGain: GainNode | null = null;
+
       // Handle incoming remote audio track
       pc.ontrack = (event) => {
         if (!audioCtxRef.current) return;
@@ -81,18 +63,26 @@ export function useWebRTC(
         const source = audioCtxRef.current.createMediaStreamSource(remoteStream);
         const analyser = audioCtxRef.current.createAnalyser();
         analyser.fftSize = FFT_SIZE;
-        source.connect(analyser);
-        analyser.connect(audioCtxRef.current.destination);
 
+        // Receive-side gain: starts muted, unmuted by speaking_start
+        const gain = audioCtxRef.current.createGain();
+        gain.gain.value = 0;
+
+        source.connect(analyser);
+        source.connect(gain);
+        gain.connect(audioCtxRef.current.destination);
+
+        peerGain = gain;
         const state = peersRef.current.get(remoteId);
         if (state) {
           state.analyser = analyser;
+          state.gainNode = gain;
         }
 
         setRemoteAnalysers((prev) => new Map(prev).set(remoteId, analyser));
       };
 
-      const state: PeerState = { pc, analyser: null };
+      const state: PeerState = { pc, analyser: null, gainNode: null };
       peersRef.current.set(remoteId, state);
       return state;
     },
@@ -112,7 +102,6 @@ export function useWebRTC(
     }
   }, []);
 
-  // Initiate connection to a remote peer (we send the offer)
   const connectToPeer = useCallback(
     async (remoteId: number) => {
       const { pc } = createPeerConnection(remoteId);
@@ -129,12 +118,9 @@ export function useWebRTC(
     [createPeerConnection]
   );
 
-  // Handle incoming RTC offer (we send back an answer)
   const handleOffer = useCallback(
     async (fromId: number, sdp: string) => {
-      // Destroy existing connection if any
       destroyPeer(fromId);
-
       const { pc } = createPeerConnection(fromId);
       await pc.setRemoteDescription({ type: "offer", sdp });
       const answer = await pc.createAnswer();
@@ -150,7 +136,6 @@ export function useWebRTC(
     [createPeerConnection, destroyPeer]
   );
 
-  // Handle incoming RTC answer
   const handleAnswer = useCallback(async (fromId: number, sdp: string) => {
     const state = peersRef.current.get(fromId);
     if (state) {
@@ -158,7 +143,6 @@ export function useWebRTC(
     }
   }, []);
 
-  // Handle incoming ICE candidate
   const handleIceCandidate = useCallback(
     async (fromId: number, candidate: RTCIceCandidateInit) => {
       const state = peersRef.current.get(fromId);
@@ -169,7 +153,14 @@ export function useWebRTC(
     []
   );
 
-  // Clean up a specific peer when they leave
+  // Receiver-side muting: unmute when speaking, mute when not
+  const setRemoteMuted = useCallback((remoteId: number, muted: boolean) => {
+    const state = peersRef.current.get(remoteId);
+    if (state?.gainNode) {
+      state.gainNode.gain.value = muted ? 0 : 1;
+    }
+  }, []);
+
   const handleParticipantLeft = useCallback(
     (id: number) => {
       destroyPeer(id);
@@ -177,7 +168,6 @@ export function useWebRTC(
     [destroyPeer]
   );
 
-  // Cleanup all peer connections on unmount
   useEffect(() => {
     return () => {
       for (const [, state] of peersRef.current) {
@@ -188,12 +178,12 @@ export function useWebRTC(
   }, []);
 
   return {
-    gainNode: gainRef,
     remoteAnalysers,
     handleOffer,
     handleAnswer,
     handleIceCandidate,
     handleParticipantLeft,
     connectToPeer,
+    setRemoteMuted,
   };
 }

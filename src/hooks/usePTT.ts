@@ -7,7 +7,6 @@ export function usePTT(
   audioCtx: AudioContext | null,
   send: (data: string) => void,
   isConnected: boolean,
-  gainNode: React.RefObject<GainNode | null>,
   micStream: MediaStream | null
 ) {
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -49,20 +48,18 @@ export function usePTT(
   }, [audioCtx]);
 
   const startPTT = useCallback(() => {
-    if (isSpeakingRef.current || !isConnected || !gainNode.current) return;
+    if (isSpeakingRef.current || !isConnected) return;
 
     if (audioCtx?.state === "suspended") {
       audioCtx.resume();
     }
 
     playSquelch();
-
-    gainNode.current.gain.value = 1;
     send(JSON.stringify({ type: "speaking_start" }));
 
     isSpeakingRef.current = true;
     setIsSpeaking(true);
-  }, [isConnected, audioCtx, send, playSquelch, gainNode]);
+  }, [isConnected, audioCtx, send, playSquelch]);
 
   const stopPTT = useCallback(() => {
     if (!isSpeakingRef.current) return;
@@ -70,13 +67,9 @@ export function usePTT(
     isSpeakingRef.current = false;
     setIsSpeaking(false);
 
-    if (gainNode.current) {
-      gainNode.current.gain.value = 0;
-    }
-
     playSquelch();
     send(JSON.stringify({ type: "speaking_stop" }));
-  }, [send, playSquelch, gainNode]);
+  }, [send, playSquelch]);
 
   return {
     isSpeaking,
