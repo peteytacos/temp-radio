@@ -21,37 +21,41 @@ export function useWebRTC(
   const peersRef = useRef<Map<number, PeerState>>(new Map());
   const audioCtxRef = useRef(audioCtx);
   audioCtxRef.current = audioCtx;
-  const micStreamRef = useRef(micStream);
-  micStreamRef.current = micStream;
   const sendRef = useRef(send);
   sendRef.current = send;
-  const myIdRef = useRef(myId);
-  myIdRef.current = myId;
 
   const [remoteAnalysers, setRemoteAnalysers] = useState<
     Map<number, AnalyserNode>
   >(new Map());
 
-  const localTrackRef = useRef<MediaStreamTrack | null>(null);
+  // Process mic through a GainNode for PTT muting (avoids iOS track.enabled issues)
+  const gainRef = useRef<GainNode | null>(null);
+  const processedStreamRef = useRef<MediaStream | null>(null);
 
-  // Keep local track ref in sync with mic stream
   useEffect(() => {
-    if (micStream) {
-      localTrackRef.current = micStream.getAudioTracks()[0] || null;
-      if (localTrackRef.current) {
-        localTrackRef.current.enabled = false; // Start muted
-      }
-    }
-  }, [micStream]);
+    if (!audioCtx || !micStream) return;
+
+    const source = audioCtx.createMediaStreamSource(micStream);
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0; // Start muted
+    const dest = audioCtx.createMediaStreamDestination();
+
+    source.connect(gain);
+    gain.connect(dest);
+
+    gainRef.current = gain;
+    processedStreamRef.current = dest.stream;
+  }, [audioCtx, micStream]);
 
   const createPeerConnection = useCallback(
     (remoteId: number): PeerState => {
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-      // Add local audio track (muted) to the connection
-      if (micStreamRef.current) {
-        for (const track of micStreamRef.current.getAudioTracks()) {
-          pc.addTrack(track, micStreamRef.current);
+      // Add processed (gain-controlled) audio track to the connection
+      const stream = processedStreamRef.current;
+      if (stream) {
+        for (const track of stream.getAudioTracks()) {
+          pc.addTrack(track, stream);
         }
       }
 
@@ -184,7 +188,7 @@ export function useWebRTC(
   }, []);
 
   return {
-    localTrack: localTrackRef,
+    gainNode: gainRef,
     remoteAnalysers,
     handleOffer,
     handleAnswer,

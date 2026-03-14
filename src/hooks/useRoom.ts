@@ -130,6 +130,6 @@ export function useRoom(
     roomClosed,
     isConnected: state === "open",
     send: sendString,
-    localTrack: webrtc.localTrack,
+    gainNode: webrtc.gainNode,
   };
 }

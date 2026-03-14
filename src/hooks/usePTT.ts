@@ -7,7 +7,7 @@ export function usePTT(
   audioCtx: AudioContext | null,
   send: (data: string) => void,
   isConnected: boolean,
-  localTrack: React.RefObject<MediaStreamTrack | null>,
+  gainNode: React.RefObject<GainNode | null>,
   micStream: MediaStream | null
 ) {
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -49,7 +49,7 @@ export function usePTT(
   }, [audioCtx]);
 
   const startPTT = useCallback(() => {
-    if (isSpeakingRef.current || !isConnected || !localTrack.current) return;
+    if (isSpeakingRef.current || !isConnected || !gainNode.current) return;
 
     if (audioCtx?.state === "suspended") {
       audioCtx.resume();
@@ -57,12 +57,12 @@ export function usePTT(
 
     playSquelch();
 
-    localTrack.current.enabled = true;
+    gainNode.current.gain.value = 1;
     send(JSON.stringify({ type: "speaking_start" }));
 
     isSpeakingRef.current = true;
     setIsSpeaking(true);
-  }, [isConnected, audioCtx, send, playSquelch, localTrack]);
+  }, [isConnected, audioCtx, send, playSquelch, gainNode]);
 
   const stopPTT = useCallback(() => {
     if (!isSpeakingRef.current) return;
@@ -70,13 +70,13 @@ export function usePTT(
     isSpeakingRef.current = false;
     setIsSpeaking(false);
 
-    if (localTrack.current) {
-      localTrack.current.enabled = false;
+    if (gainNode.current) {
+      gainNode.current.gain.value = 0;
     }
 
     playSquelch();
     send(JSON.stringify({ type: "speaking_stop" }));
-  }, [send, playSquelch, localTrack]);
+  }, [send, playSquelch, gainNode]);
 
   return {
     isSpeaking,
