@@ -26,15 +26,8 @@ export function usePTT(
       .catch(() => {});
   }, [audioCtx]);
 
-  // Set up analyser for local waveform visualization (once per stream)
-  useEffect(() => {
-    if (!audioCtx || !micStream || analyserRef.current) return;
-    const source = audioCtx.createMediaStreamSource(micStream);
-    const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = FFT_SIZE;
-    source.connect(analyser);
-    analyserRef.current = analyser;
-  }, [audioCtx, micStream]);
+  // DIAGNOSTIC: Local waveform disabled to test if createMediaStreamSource
+  // interferes with WebRTC on iOS. Will re-enable once audio works.
 
   const playSquelch = useCallback(() => {
     if (!squelchBufferRef.current || !audioCtx) return;

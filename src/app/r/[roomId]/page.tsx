@@ -26,7 +26,6 @@ export default function RoomPage() {
   const [radioEnabled, setRadioEnabled] = useState(true);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
-  const micCloneRef = useRef<MediaStream | null>(null);
 
   // Read token from sessionStorage once roomId is known
   useEffect(() => {
@@ -43,11 +42,9 @@ export default function RoomPage() {
 
     // Request mic permission during activation (user gesture)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      micStreamRef.current = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
-      micStreamRef.current = stream; // Original for WebRTC
-      micCloneRef.current = stream.clone(); // Clone for local waveform visualization
     } catch {
       // Continue without mic — user can still listen
     }
@@ -56,7 +53,7 @@ export default function RoomPage() {
   }, []);
 
   const room = useRoom(roomId, tokenReady ? token : undefined, audioCtxRef.current, micStreamRef.current, activated && tokenReady);
-  const ptt = usePTT(audioCtxRef.current, room.send, room.isConnected, micCloneRef.current);
+  const ptt = usePTT(audioCtxRef.current, room.send, room.isConnected, micStreamRef.current);
 
   // Build waveform sources for canvas
   const waveformSources = useMemo(() => {

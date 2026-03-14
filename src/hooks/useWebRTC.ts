@@ -32,16 +32,19 @@ export function useWebRTC(
 
   const setupRemoteAudio = useCallback((remoteId: number, pc: RTCPeerConnection) => {
     pc.ontrack = (event) => {
+      console.log(`[WebRTC] ontrack fired for peer ${remoteId}`, {
+        tracks: event.streams[0]?.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, muted: t.muted, readyState: t.readyState })),
+      });
       const ctx = audioCtxRef.current;
-      if (!ctx) return;
+      if (!ctx) { console.warn("[WebRTC] No AudioContext in ontrack"); return; }
       const stream = event.streams[0];
-      if (!stream) return;
+      if (!stream) { console.warn("[WebRTC] No stream in ontrack"); return; }
 
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = FFT_SIZE;
       const gain = ctx.createGain();
-      gain.gain.value = 0; // Start muted, unmuted by speaking_start
+      gain.gain.value = 0;
 
       source.connect(analyser);
       source.connect(gain);
@@ -53,6 +56,14 @@ export function useWebRTC(
         state.gain = gain;
       }
       setRemoteAnalysers((prev) => new Map(prev).set(remoteId, analyser));
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] Peer ${remoteId} connection state: ${pc.connectionState}`);
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC] Peer ${remoteId} ICE state: ${pc.iceConnectionState}`);
     };
   }, []);
 
@@ -81,15 +92,16 @@ export function useWebRTC(
     }
   }, []);
 
-  // We are the offerer (existing participant, new peer joins)
   const connectToPeer = useCallback(async (remoteId: number) => {
     destroyPeer(remoteId);
     const pc = new RTCPeerConnection(RTC_CONFIG);
     peersRef.current.set(remoteId, { pc, analyser: null, gain: null });
 
-    // Add mic
+    const micTracks = micStreamRef.current?.getAudioTracks() || [];
+    console.log(`[WebRTC] connectToPeer(${remoteId}) — offerer, mic tracks:`, micTracks.map(t => ({ enabled: t.enabled, muted: t.muted, readyState: t.readyState })));
+
     if (micStreamRef.current) {
-      micStreamRef.current.getAudioTracks().forEach((t) => pc.addTrack(t, micStreamRef.current!));
+      micTracks.forEach((t) => pc.addTrack(t, micStreamRef.current!));
     }
 
     setupIce(remoteId, pc);
@@ -97,6 +109,14 @@ export function useWebRTC(
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
+
+    console.log(`[WebRTC] Sending offer to ${remoteId}, transceivers:`, pc.getTransceivers().map(t => ({
+      mid: t.mid,
+      direction: t.direction,
+      senderTrack: t.sender.track?.kind,
+      receiverTrack: t.receiver.track?.kind,
+    })));
+
     sendRef.current(JSON.stringify({
       type: "rtc_offer",
       targetId: remoteId,
@@ -104,7 +124,6 @@ export function useWebRTC(
     }));
   }, [destroyPeer, setupIce, setupRemoteAudio]);
 
-  // We are the answerer (we just joined, existing participant sends offer)
   const handleOffer = useCallback(async (fromId: number, sdp: string) => {
     destroyPeer(fromId);
     const pc = new RTCPeerConnection(RTC_CONFIG);
@@ -113,16 +132,25 @@ export function useWebRTC(
     setupIce(fromId, pc);
     setupRemoteAudio(fromId, pc);
 
-    // Set remote description FIRST so browser creates transceivers from the offer
     await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp }));
 
-    // THEN add mic — browser matches it with the existing audio transceiver
+    const micTracks = micStreamRef.current?.getAudioTracks() || [];
+    console.log(`[WebRTC] handleOffer(${fromId}) — answerer, mic tracks:`, micTracks.map(t => ({ enabled: t.enabled, muted: t.muted, readyState: t.readyState })));
+
     if (micStreamRef.current) {
-      micStreamRef.current.getAudioTracks().forEach((t) => pc.addTrack(t, micStreamRef.current!));
+      micTracks.forEach((t) => pc.addTrack(t, micStreamRef.current!));
     }
 
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
+
+    console.log(`[WebRTC] Sending answer to ${fromId}, transceivers:`, pc.getTransceivers().map(t => ({
+      mid: t.mid,
+      direction: t.direction,
+      senderTrack: t.sender.track?.kind,
+      receiverTrack: t.receiver.track?.kind,
+    })));
+
     sendRef.current(JSON.stringify({
       type: "rtc_answer",
       targetId: fromId,
@@ -134,6 +162,12 @@ export function useWebRTC(
     const state = peersRef.current.get(fromId);
     if (state) {
       await state.pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp }));
+      console.log(`[WebRTC] Answer set for ${fromId}, transceivers:`, state.pc.getTransceivers().map(t => ({
+        mid: t.mid,
+        direction: t.direction,
+        senderTrack: t.sender.track?.kind,
+        receiverTrack: t.receiver.track?.kind,
+      })));
     }
   }, []);
 
