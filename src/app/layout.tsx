@@ -2,13 +2,15 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Temp Radio — Ephemeral Live Audio",
+  title: "Temp Radio — Looks like you're needed on the radio...",
   description:
-    "Broadcast your voice. Share a link. Gone when you're done. No accounts, no installs — just a link and a mic.",
+    "Hold to talk. Share the link. Gone when you leave. No accounts, no installs — just a link and a mic.",
   openGraph: {
-    title: "Temp Radio",
-    description: "Broadcast your voice. Share a link. Gone when you're done.",
+    title: "Temp Radio - Looks like you're needed on the radio...",
+    description:
+      "Hold to talk. Share the link. Gone when you leave.",
     type: "website",
+    images: ["/og.jpg"],
   },
 };
 
