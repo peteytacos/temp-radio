@@ -2,7 +2,12 @@ import next from "next";
 import { createServer } from "http";
 import { parse } from "url";
 import { WebSocketServer, WebSocket } from "ws";
-import { getRoom, disconnectBroadcaster } from "./src/lib/rooms";
+import {
+  getRoom,
+  addParticipant,
+  removeParticipant,
+  closeRoom,
+} from "./src/lib/rooms";
 
 const dev = process.env.NODE_ENV !== "production";
 const app = next({ dev });
@@ -26,104 +31,135 @@ app.prepare().then(() => {
 
     wss.handleUpgrade(req, socket, head, (ws) => {
       const roomId = match[1];
-      const role = query.role as string;
       const token = query.token as string | undefined;
-      wss.emit("connection", ws, roomId, role, token);
+      wss.emit("connection", ws, roomId, token);
     });
   });
 
-  wss.on("connection", (ws: WebSocket, roomId: string, role: string, token?: string) => {
-    const room = getRoom(roomId);
-
-    if (!room || room.closed) {
-      ws.close(4004, "Room not found");
-      return;
-    }
-
-    if (role === "broadcaster") {
-      if (room.broadcaster) {
-        ws.close(4001, "Broadcaster slot occupied");
+  wss.on(
+    "connection",
+    (ws: WebSocket, roomId: string, token?: string) => {
+      const room = getRoom(roomId);
+      if (!room || room.closed) {
+        ws.close(4004, "Room not found");
         return;
       }
 
-      if (token !== room.broadcasterToken) {
-        ws.close(4003, "Invalid token");
+      const participant = addParticipant(roomId, ws, token);
+      if (!participant) {
+        ws.close(4004, "Room not found");
         return;
       }
 
-      room.broadcaster = ws;
-      let isFirstChunk = true;
+      // Build current participant list for welcome message
+      const participantList = Array.from(room.participants.values()).map(
+        (p) => ({ id: p.id, color: p.color })
+      );
 
-      // Tell everyone broadcaster is live
-      broadcastToRoom(roomId, { type: "status", broadcasting: true });
+      // Send welcome to new participant
+      ws.send(
+        JSON.stringify({
+          type: "welcome",
+          id: participant.id,
+          color: participant.color,
+          isCreator: participant.isCreator,
+          participants: participantList,
+        })
+      );
 
-      ws.on("message", (data: Buffer) => {
-        if (isFirstChunk) {
-          room.initSegment = Buffer.from(data);
-          isFirstChunk = false;
-        }
+      // Notify everyone else
+      broadcastToRoom(
+        roomId,
+        {
+          type: "participant_joined",
+          id: participant.id,
+          color: participant.color,
+          count: room.participants.size,
+        },
+        participant.id
+      );
 
-        for (const listener of room.listeners) {
-          if (listener.readyState === WebSocket.OPEN) {
-            listener.send(data);
+      ws.on("message", (data: Buffer | string) => {
+        if (typeof data === "string") {
+          try {
+            const msg = JSON.parse(data);
+            if (msg.type === "speaking_start") {
+              room.initSegments.delete(participant.id);
+              broadcastToRoom(
+                roomId,
+                { type: "speaking_start", id: participant.id },
+                participant.id
+              );
+            } else if (msg.type === "speaking_stop") {
+              broadcastToRoom(
+                roomId,
+                { type: "speaking_stop", id: participant.id },
+                participant.id
+              );
+            }
+          } catch {
+            // Invalid JSON, ignore
+          }
+        } else {
+          // Binary audio data
+          const buf = Buffer.from(data);
+
+          // Cache init segment (first chunk per speaking session)
+          if (!room.initSegments.has(participant.id)) {
+            room.initSegments.set(participant.id, buf);
+          }
+
+          // Prepend speaker ID byte and relay to all others
+          const tagged = Buffer.alloc(1 + buf.length);
+          tagged[0] = participant.id;
+          buf.copy(tagged, 1);
+
+          for (const [id, p] of room.participants) {
+            if (id !== participant.id && p.ws.readyState === WebSocket.OPEN) {
+              p.ws.send(tagged);
+            }
           }
         }
       });
 
       ws.on("close", () => {
-        // Broadcaster disconnected — room stays alive, just mark offline
-        disconnectBroadcaster(roomId);
-        broadcastListenerCount(roomId);
-      });
+        const { wasCreator, count } = removeParticipant(
+          roomId,
+          participant.id
+        );
 
-    } else {
-      // Listener
-      room.listeners.add(ws);
-
-      ws.send(JSON.stringify({
-        type: "status",
-        broadcasting: room.broadcaster !== null,
-      }));
-
-      // Send cached init segment so late joiners can decode
-      if (room.initSegment && room.broadcaster && ws.readyState === WebSocket.OPEN) {
-        ws.send(room.initSegment);
-      }
-
-      broadcastListenerCount(roomId);
-
-      ws.on("close", () => {
-        room.listeners.delete(ws);
-        const currentRoom = getRoom(roomId);
-        if (currentRoom) broadcastListenerCount(roomId);
+        if (wasCreator) {
+          closeRoom(roomId);
+        } else {
+          broadcastToRoom(roomId, {
+            type: "participant_left",
+            id: participant.id,
+            count,
+          });
+        }
       });
     }
-  });
+  );
 
-  function broadcastToRoom(roomId: string, msg: object) {
+  function broadcastToRoom(
+    roomId: string,
+    msg: object,
+    excludeId?: number
+  ) {
     const room = getRoom(roomId);
     if (!room) return;
     const payload = JSON.stringify(msg);
-    for (const l of room.listeners) {
-      if (l.readyState === WebSocket.OPEN) l.send(payload);
-    }
-    if (room.broadcaster?.readyState === WebSocket.OPEN) {
-      room.broadcaster.send(payload);
+    for (const [id, p] of room.participants) {
+      if (id !== excludeId && p.ws.readyState === WebSocket.OPEN) {
+        p.ws.send(payload);
+      }
     }
   }
 
-  function broadcastListenerCount(roomId: string) {
-    const room = getRoom(roomId);
-    if (!room) return;
-    broadcastToRoom(roomId, { type: "listeners", count: room.listeners.size });
-  }
-
-  // Ping all clients every 30s to keep connections alive
+  // Ping all clients every 30s
   setInterval(() => {
     wss.clients.forEach((ws) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.ping();
-      }
+      if (ws.readyState === WebSocket.OPEN) ws.ping();
     });
   }, 30_000);
 

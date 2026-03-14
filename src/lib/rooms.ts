@@ -1,11 +1,19 @@
 import { WebSocket } from "ws";
+import { getColor } from "./colors";
+
+export interface Participant {
+  ws: WebSocket;
+  id: number;
+  color: string;
+  isCreator: boolean;
+}
 
 export interface Room {
   id: string;
-  broadcaster: WebSocket | null;
-  broadcasterToken: string;
-  listeners: Set<WebSocket>;
-  initSegment: Buffer | null;
+  creatorToken: string;
+  participants: Map<number, Participant>;
+  nextParticipantId: number;
+  initSegments: Map<number, Buffer>; // speaker ID → latest init segment
   createdAt: number;
   closed: boolean;
 }
@@ -15,10 +23,10 @@ const rooms = new Map<string, Room>();
 export function createRoom(id: string, token: string): Room {
   const room: Room = {
     id,
-    broadcaster: null,
-    broadcasterToken: token,
-    listeners: new Set(),
-    initSegment: null,
+    creatorToken: token,
+    participants: new Map(),
+    nextParticipantId: 0,
+    initSegments: new Map(),
     createdAt: Date.now(),
     closed: false,
   };
@@ -30,34 +38,49 @@ export function getRoom(id: string): Room | undefined {
   return rooms.get(id);
 }
 
+export function addParticipant(
+  roomId: string,
+  ws: WebSocket,
+  token?: string
+): Participant | null {
+  const room = rooms.get(roomId);
+  if (!room || room.closed) return null;
+
+  const id = room.nextParticipantId++;
+  const color = getColor(id);
+  const isCreator = !!token && token === room.creatorToken;
+
+  const participant: Participant = { ws, id, color, isCreator };
+  room.participants.set(id, participant);
+  return participant;
+}
+
+export function removeParticipant(
+  roomId: string,
+  participantId: number
+): { wasCreator: boolean; count: number } {
+  const room = rooms.get(roomId);
+  if (!room) return { wasCreator: false, count: 0 };
+
+  const participant = room.participants.get(participantId);
+  const wasCreator = participant?.isCreator ?? false;
+  room.participants.delete(participantId);
+  room.initSegments.delete(participantId);
+
+  return { wasCreator, count: room.participants.size };
+}
+
 export function closeRoom(id: string) {
   const room = rooms.get(id);
   if (room) {
     room.closed = true;
-    for (const l of room.listeners) {
-      if (l.readyState === WebSocket.OPEN) {
-        l.send(JSON.stringify({ type: "room_closed" }));
+    for (const [, p] of room.participants) {
+      if (p.ws.readyState === WebSocket.OPEN) {
+        p.ws.send(JSON.stringify({ type: "room_closed" }));
+        p.ws.close(4002, "Room closed");
       }
-      l.close(4002, "Room closed by creator");
-    }
-    if (room.broadcaster?.readyState === WebSocket.OPEN) {
-      room.broadcaster.close(4002, "Room closed by creator");
     }
     rooms.delete(id);
-  }
-}
-
-export function disconnectBroadcaster(id: string) {
-  const room = rooms.get(id);
-  if (room) {
-    room.broadcaster = null;
-    // Don't destroy the room — it persists until explicitly closed.
-    // Notify listeners that broadcaster went offline.
-    for (const l of room.listeners) {
-      if (l.readyState === WebSocket.OPEN) {
-        l.send(JSON.stringify({ type: "status", broadcasting: false }));
-      }
-    }
   }
 }
 
@@ -65,12 +88,11 @@ export function roomExists(id: string): boolean {
   return rooms.has(id);
 }
 
-// Only clean up rooms that were created but NEVER had a broadcaster connect
-// (abandoned room creation). Active rooms persist indefinitely.
+// Clean up abandoned rooms (created but never joined within 30 min)
 setInterval(() => {
   const now = Date.now();
   for (const [id, room] of rooms) {
-    if (!room.broadcaster && !room.initSegment && now - room.createdAt > 30 * 60 * 1000) {
+    if (room.participants.size === 0 && now - room.createdAt > 30 * 60 * 1000) {
       rooms.delete(id);
     }
   }
