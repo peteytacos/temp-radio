@@ -69,6 +69,7 @@ export function useRoom(
 
         case "speaking_start":
           setActiveSpeakers((prev) => new Set(prev).add(msg.id));
+          webrtc.setRemoteMuted(msg.id, false);
           break;
 
         case "speaking_stop":
@@ -77,6 +78,7 @@ export function useRoom(
             next.delete(msg.id);
             return next;
           });
+          webrtc.setRemoteMuted(msg.id, true);
           break;
 
         case "rtc_offer":
