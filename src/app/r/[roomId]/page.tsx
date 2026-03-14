@@ -340,6 +340,18 @@ export default function RoomPage() {
             {radioEnabled ? "ON" : "OFF"}
           </button>
         </div>
+
+        {/* Build ID */}
+        <div
+          className="text-right mt-[1%]"
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: "clamp(5px, 1vw, 7px)",
+            color: "rgba(38, 83, 39, 0.3)",
+          }}
+        >
+          {process.env.NEXT_PUBLIC_BUILD_ID}
+        </div>
       </RadioShell>
     </div>
   );
