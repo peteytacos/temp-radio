@@ -25,6 +25,7 @@ export default function RoomPage() {
   const [copied, setCopied] = useState(false);
   const [radioEnabled, setRadioEnabled] = useState(true);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
 
   // Read token from sessionStorage once roomId is known
   useEffect(() => {
@@ -34,15 +35,25 @@ export default function RoomPage() {
     setTokenReady(true);
   }, [roomId]);
 
-  const activate = useCallback(() => {
+  const activate = useCallback(async () => {
     const ctx = new AudioContext();
     audioCtxRef.current = ctx;
     if (ctx.state === "suspended") ctx.resume();
+
+    // Request mic permission during activation (user gesture)
+    try {
+      micStreamRef.current = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+    } catch {
+      // Continue without mic — user can still listen
+    }
+
     setActivated(true);
   }, []);
 
   const room = useRoom(roomId, tokenReady ? token : undefined, audioCtxRef.current, tokenReady);
-  const ptt = usePTT(audioCtxRef.current, room.send, room.isConnected);
+  const ptt = usePTT(audioCtxRef.current, room.send, room.isConnected, micStreamRef.current);
 
   // Build waveform sources for canvas
   const waveformSources = useMemo(() => {

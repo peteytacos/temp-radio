@@ -6,7 +6,8 @@ import { AUDIO_MIME_TYPE, TIMESLICE_MS, FFT_SIZE } from "@/lib/audio-config";
 export function usePTT(
   audioCtx: AudioContext | null,
   send: (data: ArrayBuffer | string) => void,
-  isConnected: boolean
+  isConnected: boolean,
+  micStream: MediaStream | null = null
 ) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
@@ -14,6 +15,11 @@ export function usePTT(
   const analyserRef = useRef<AnalyserNode | null>(null);
   const squelchRef = useRef<HTMLAudioElement | null>(null);
   const isSpeakingRef = useRef(false);
+
+  // Use pre-acquired mic stream if available
+  if (micStream && !streamRef.current) {
+    streamRef.current = micStream;
+  }
 
   // Preload squelch sound
   useEffect(() => {
@@ -44,14 +50,18 @@ export function usePTT(
         streamRef.current = await navigator.mediaDevices.getUserMedia({
           audio: true,
         });
-        const source = audioCtx.createMediaStreamSource(streamRef.current);
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = FFT_SIZE;
-        source.connect(analyser);
-        analyserRef.current = analyser;
       } catch {
         return;
       }
+    }
+
+    // Set up analyser for waveform visualization (once per stream)
+    if (!analyserRef.current) {
+      const source = audioCtx.createMediaStreamSource(streamRef.current);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = FFT_SIZE;
+      source.connect(analyser);
+      analyserRef.current = analyser;
     }
 
     // Signal speaking start
