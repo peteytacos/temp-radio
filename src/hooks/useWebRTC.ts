@@ -32,47 +32,45 @@ export function useWebRTC(
 
   const setupRemoteAudio = useCallback((remoteId: number, pc: RTCPeerConnection) => {
     pc.ontrack = (event) => {
-      const track = event.streams[0]?.getTracks()[0];
+      const track = event.track;
+      const stream = event.streams[0];
       console.log(`[WebRTC] ontrack peer ${remoteId}: kind=${track?.kind} enabled=${track?.enabled} muted=${track?.muted} readyState=${track?.readyState}`);
 
-      const ctx = audioCtxRef.current;
-      if (!ctx) { console.warn("[WebRTC] No AudioContext in ontrack"); return; }
-      const stream = event.streams[0];
       if (!stream) { console.warn("[WebRTC] No stream in ontrack"); return; }
 
-      const source = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = FFT_SIZE;
-      const gain = ctx.createGain();
-      gain.gain.value = 0;
+      const connectAudio = () => {
+        const ctx = audioCtxRef.current;
+        if (!ctx) { console.warn("[WebRTC] No AudioContext when connecting audio"); return; }
+        console.log(`[WebRTC] Connecting audio graph for peer ${remoteId}`);
 
-      source.connect(analyser);
-      analyser.connect(gain);
-      gain.connect(ctx.destination);
+        const source = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = FFT_SIZE;
+        const gain = ctx.createGain();
+        gain.gain.value = 0;
 
-      const state = peersRef.current.get(remoteId);
-      if (state) {
-        state.analyser = analyser;
-        state.gain = gain;
+        source.connect(analyser);
+        analyser.connect(gain);
+        gain.connect(ctx.destination);
+
+        const state = peersRef.current.get(remoteId);
+        if (state) {
+          state.analyser = analyser;
+          state.gain = gain;
+        }
+        setRemoteAnalysers((prev) => new Map(prev).set(remoteId, analyser));
+      };
+
+      // Wait for track to unmute (receive actual data) before creating audio graph
+      if (track.muted) {
+        console.log(`[WebRTC] Track muted, waiting for unmute...`);
+        track.addEventListener("unmute", () => {
+          console.log(`[WebRTC] Track unmuted for peer ${remoteId}`);
+          connectAudio();
+        }, { once: true });
+      } else {
+        connectAudio();
       }
-      setRemoteAnalysers((prev) => new Map(prev).set(remoteId, analyser));
-
-      // Check for actual audio data every 2s
-      const dataCheck = setInterval(() => {
-        if (pc.connectionState !== "connected") { clearInterval(dataCheck); return; }
-        // Check analyser for non-silence
-        const buf = new Uint8Array(analyser.fftSize);
-        analyser.getByteTimeDomainData(buf);
-        const hasAudio = buf.some(v => v !== 128);
-        // Check RTP stats
-        pc.getStats().then(stats => {
-          stats.forEach(report => {
-            if (report.type === "inbound-rtp" && report.kind === "audio") {
-              console.log(`[WebRTC] Peer ${remoteId} inbound audio: bytes=${report.bytesReceived} packets=${report.packetsReceived} hasAudioData=${hasAudio}`);
-            }
-          });
-        });
-      }, 2000);
     };
 
     pc.onconnectionstatechange = () => {
