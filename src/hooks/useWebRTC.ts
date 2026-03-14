@@ -110,15 +110,17 @@ export function useWebRTC(
     const pc = new RTCPeerConnection(RTC_CONFIG);
     peersRef.current.set(fromId, { pc, analyser: null, gain: null });
 
-    // Add mic
+    setupIce(fromId, pc);
+    setupRemoteAudio(fromId, pc);
+
+    // Set remote description FIRST so browser creates transceivers from the offer
+    await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp }));
+
+    // THEN add mic — browser matches it with the existing audio transceiver
     if (micStreamRef.current) {
       micStreamRef.current.getAudioTracks().forEach((t) => pc.addTrack(t, micStreamRef.current!));
     }
 
-    setupIce(fromId, pc);
-    setupRemoteAudio(fromId, pc);
-
-    await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp }));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     sendRef.current(JSON.stringify({
