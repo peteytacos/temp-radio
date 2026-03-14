@@ -118,7 +118,7 @@ export default function RoomPage() {
   // ===== ACTIVATION GATE =====
   if (!activated) {
     return (
-      <div className="h-dvh bg-[#0a0a06] flex items-center justify-center overflow-hidden">
+      <div className="min-h-screen bg-[#0a0a06] flex items-center justify-center p-4">
         <RadioShell
           roomId={roomId}
           isConnected={false}
@@ -163,7 +163,7 @@ export default function RoomPage() {
   // ===== ROOM CLOSED =====
   if (room.roomClosed) {
     return (
-      <div className="h-dvh bg-[#0a0a06] flex items-center justify-center overflow-hidden">
+      <div className="min-h-screen bg-[#0a0a06] flex items-center justify-center p-4">
         <RadioShell
           roomId={roomId}
           isConnected={false}
@@ -218,7 +218,7 @@ export default function RoomPage() {
 
   // ===== ACTIVE ROOM =====
   return (
-    <div className="h-dvh bg-[#0a0a06] flex items-center justify-center overflow-hidden">
+    <div className="min-h-screen bg-[#0a0a06] flex items-center justify-center p-4">
       <RadioShell
         roomId={roomId}
         isConnected={room.isConnected}

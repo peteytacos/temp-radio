@@ -35,11 +35,11 @@ export default function RadioShell({
   children,
 }: Props) {
   return (
-    <div className="w-full max-w-[480px] mx-auto relative select-none max-h-[100dvh]">
+    <div className="w-full max-w-[480px] mx-auto relative select-none">
       <img
         src="/radio.jpg"
         alt="Squelch Radio"
-        className="w-full h-full block object-contain"
+        className="w-full h-auto block"
         draggable={false}
       />
 
