@@ -71,6 +71,21 @@ export default function RadioShell({
           <div className="relative z-10 h-full flex flex-col p-[5%]">
             {children}
           </div>
+
+          {/* Build number */}
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              bottom: 2,
+              right: "5%",
+              fontFamily: "var(--font-mono)",
+              fontSize: "clamp(5px, 1vw, 7px)",
+              color: "rgba(38, 83, 39, 0.5)",
+              zIndex: 20,
+            }}
+          >
+            build:{process.env.NEXT_PUBLIC_BUILD_NUMBER}
+          </div>
         </div>
       </div>
 
