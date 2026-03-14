@@ -41,7 +41,10 @@ export function usePTT(
     if (!squelchBufferRef.current || !audioCtx) return;
     const source = audioCtx.createBufferSource();
     source.buffer = squelchBufferRef.current;
-    source.connect(audioCtx.destination);
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0.3;
+    source.connect(gain);
+    gain.connect(audioCtx.destination);
     source.start();
   }, [audioCtx]);
 

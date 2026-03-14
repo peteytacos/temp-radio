@@ -173,18 +173,6 @@ export function useWebRTC(
     [destroyPeer]
   );
 
-  // When we first join, connect to all existing participants
-  const handleWelcome = useCallback(
-    (myId: number, existingParticipants: Array<{ id: number }>) => {
-      for (const p of existingParticipants) {
-        if (p.id !== myId) {
-          connectToPeer(p.id);
-        }
-      }
-    },
-    [connectToPeer]
-  );
-
   // Cleanup all peer connections on unmount
   useEffect(() => {
     return () => {
@@ -202,7 +190,6 @@ export function useWebRTC(
     handleAnswer,
     handleIceCandidate,
     handleParticipantLeft,
-    handleWelcome,
     connectToPeer,
   };
 }

@@ -42,7 +42,8 @@ export function useRoom(
             new Map(msg.participants.map((p) => [p.id, p.color]))
           );
           setParticipantCount(msg.participants.length);
-          webrtc.handleWelcome(msg.id, msg.participants);
+          // Don't initiate connections here — existing peers will send offers
+          // via participant_joined, avoiding WebRTC "glare" (both sides offering)
           break;
 
         case "participant_joined":
