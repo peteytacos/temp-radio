@@ -52,8 +52,8 @@ export default function RoomPage() {
     setActivated(true);
   }, []);
 
-  const room = useRoom(roomId, tokenReady ? token : undefined, audioCtxRef.current, tokenReady);
-  const ptt = usePTT(audioCtxRef.current, room.send, room.isConnected, micStreamRef.current);
+  const room = useRoom(roomId, tokenReady ? token : undefined, audioCtxRef.current, micStreamRef.current, tokenReady);
+  const ptt = usePTT(audioCtxRef.current, room.send, room.isConnected, room.localTrack, micStreamRef.current);
 
   // Build waveform sources for canvas
   const waveformSources = useMemo(() => {

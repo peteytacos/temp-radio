@@ -5,9 +5,15 @@ export type ServerMessage =
   | { type: "participant_left"; id: number; count: number }
   | { type: "speaking_start"; id: number }
   | { type: "speaking_stop"; id: number }
-  | { type: "room_closed" };
+  | { type: "room_closed" }
+  | { type: "rtc_offer"; fromId: number; sdp: string }
+  | { type: "rtc_answer"; fromId: number; sdp: string }
+  | { type: "rtc_ice"; fromId: number; candidate: RTCIceCandidateInit };
 
 // Client → Server
 export type ClientMessage =
   | { type: "speaking_start" }
-  | { type: "speaking_stop" };
+  | { type: "speaking_stop" }
+  | { type: "rtc_offer"; targetId: number; sdp: string }
+  | { type: "rtc_answer"; targetId: number; sdp: string }
+  | { type: "rtc_ice"; targetId: number; candidate: RTCIceCandidateInit };

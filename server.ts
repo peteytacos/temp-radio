@@ -29,6 +29,15 @@ function broadcastToRoom(roomId: string, msg: object, excludeId?: number) {
   }
 }
 
+function sendToParticipant(roomId: string, targetId: number, msg: object) {
+  const room = getRoom(roomId);
+  if (!room) return;
+  const participant = room.participants.get(targetId);
+  if (participant && participant.ws.readyState === 1) {
+    participant.ws.send(JSON.stringify(msg));
+  }
+}
+
 const server = Bun.serve<WSData>({
   port: PORT,
 
@@ -130,44 +139,49 @@ const server = Bun.serve<WSData>({
       const room = getRoom(roomId);
       if (!room) return;
 
-      if (typeof data === "string") {
-        try {
-          const msg = JSON.parse(data);
-          if (msg.type === "speaking_start") {
-            room.initSegments.delete(participantId);
+      if (typeof data !== "string") return;
+
+      try {
+        const msg = JSON.parse(data);
+        switch (msg.type) {
+          case "speaking_start":
             broadcastToRoom(
               roomId,
               { type: "speaking_start", id: participantId },
               participantId
             );
-          } else if (msg.type === "speaking_stop") {
+            break;
+          case "speaking_stop":
             broadcastToRoom(
               roomId,
               { type: "speaking_stop", id: participantId },
               participantId
             );
-          }
-        } catch {
-          // Invalid JSON
+            break;
+          case "rtc_offer":
+            sendToParticipant(roomId, msg.targetId, {
+              type: "rtc_offer",
+              fromId: participantId,
+              sdp: msg.sdp,
+            });
+            break;
+          case "rtc_answer":
+            sendToParticipant(roomId, msg.targetId, {
+              type: "rtc_answer",
+              fromId: participantId,
+              sdp: msg.sdp,
+            });
+            break;
+          case "rtc_ice":
+            sendToParticipant(roomId, msg.targetId, {
+              type: "rtc_ice",
+              fromId: participantId,
+              candidate: msg.candidate,
+            });
+            break;
         }
-      } else {
-        // Binary audio data
-        const buf = Buffer.from(data);
-
-        if (!room.initSegments.has(participantId)) {
-          room.initSegments.set(participantId, buf);
-        }
-
-        // Prepend speaker ID byte and relay to all others
-        const tagged = Buffer.alloc(1 + buf.length);
-        tagged[0] = participantId;
-        buf.copy(tagged, 1);
-
-        for (const [id, p] of room.participants) {
-          if (id !== participantId && p.ws.readyState === 1) {
-            p.ws.send(tagged);
-          }
-        }
+      } catch {
+        // Invalid JSON
       }
     },
 

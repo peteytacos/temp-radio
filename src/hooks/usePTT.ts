@@ -1,25 +1,19 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { AUDIO_MIME_TYPE, TIMESLICE_MS, FFT_SIZE } from "@/lib/audio-config";
+import { FFT_SIZE } from "@/lib/audio-config";
 
 export function usePTT(
   audioCtx: AudioContext | null,
-  send: (data: ArrayBuffer | string) => void,
+  send: (data: string) => void,
   isConnected: boolean,
-  micStream: MediaStream | null = null
+  localTrack: React.RefObject<MediaStreamTrack | null>,
+  micStream: MediaStream | null
 ) {
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const streamRef = useRef<MediaStream | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const squelchBufferRef = useRef<AudioBuffer | null>(null);
   const isSpeakingRef = useRef(false);
-
-  // Use pre-acquired mic stream if available
-  if (micStream && !streamRef.current) {
-    streamRef.current = micStream;
-  }
 
   // Pre-decode squelch sound into AudioBuffer for instant playback
   useEffect(() => {
@@ -33,6 +27,16 @@ export function usePTT(
       .catch(() => {});
   }, [audioCtx]);
 
+  // Set up analyser for local waveform visualization (once per stream)
+  useEffect(() => {
+    if (!audioCtx || !micStream || analyserRef.current) return;
+    const source = audioCtx.createMediaStreamSource(micStream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = FFT_SIZE;
+    source.connect(analyser);
+    analyserRef.current = analyser;
+  }, [audioCtx, micStream]);
+
   const playSquelch = useCallback(() => {
     if (!squelchBufferRef.current || !audioCtx) return;
     const source = audioCtx.createBufferSource();
@@ -41,55 +45,21 @@ export function usePTT(
     source.start();
   }, [audioCtx]);
 
-  const startPTT = useCallback(async () => {
-    if (isSpeakingRef.current || !isConnected || !audioCtx) return;
+  const startPTT = useCallback(() => {
+    if (isSpeakingRef.current || !isConnected || !localTrack.current) return;
 
-    // Resume AudioContext without await to preserve user gesture chain for getUserMedia
-    if (audioCtx.state === "suspended") {
+    if (audioCtx?.state === "suspended") {
       audioCtx.resume();
     }
 
     playSquelch();
 
-    // Acquire mic on first press, reuse after
-    if (!streamRef.current) {
-      try {
-        streamRef.current = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-        });
-      } catch {
-        return;
-      }
-    }
-
-    // Set up analyser for waveform visualization (once per stream)
-    if (!analyserRef.current) {
-      const source = audioCtx.createMediaStreamSource(streamRef.current);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = FFT_SIZE;
-      source.connect(analyser);
-      analyserRef.current = analyser;
-    }
-
-    // Signal speaking start
+    localTrack.current.enabled = true;
     send(JSON.stringify({ type: "speaking_start" }));
 
-    // Start recording
-    const recorder = new MediaRecorder(streamRef.current, {
-      mimeType: AUDIO_MIME_TYPE,
-    });
-    recorderRef.current = recorder;
-
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        event.data.arrayBuffer().then((buf) => send(buf));
-      }
-    };
-
-    recorder.start(TIMESLICE_MS);
     isSpeakingRef.current = true;
     setIsSpeaking(true);
-  }, [isConnected, audioCtx, send, playSquelch]);
+  }, [isConnected, audioCtx, send, playSquelch, localTrack]);
 
   const stopPTT = useCallback(() => {
     if (!isSpeakingRef.current) return;
@@ -97,29 +67,13 @@ export function usePTT(
     isSpeakingRef.current = false;
     setIsSpeaking(false);
 
-    const recorder = recorderRef.current;
-    recorderRef.current = null;
+    if (localTrack.current) {
+      localTrack.current.enabled = false;
+    }
 
     playSquelch();
-
-    if (recorder?.state === "recording") {
-      // Wait for the final dataavailable to fire before signaling stop
-      recorder.onstop = () => {
-        send(JSON.stringify({ type: "speaking_stop" }));
-      };
-      recorder.stop();
-    } else {
-      send(JSON.stringify({ type: "speaking_stop" }));
-    }
-  }, [send, playSquelch]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      recorderRef.current?.stop();
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-    };
-  }, []);
+    send(JSON.stringify({ type: "speaking_stop" }));
+  }, [send, playSquelch, localTrack]);
 
   return {
     isSpeaking,

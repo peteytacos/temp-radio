@@ -13,7 +13,6 @@ export interface Room {
   creatorToken: string;
   participants: Map<number, Participant>;
   nextParticipantId: number;
-  initSegments: Map<number, Buffer>; // speaker ID → latest init segment
   createdAt: number;
   closed: boolean;
 }
@@ -26,7 +25,6 @@ export function createRoom(id: string, token: string): Room {
     creatorToken: token,
     participants: new Map(),
     nextParticipantId: 0,
-    initSegments: new Map(),
     createdAt: Date.now(),
     closed: false,
   };
@@ -66,7 +64,6 @@ export function removeParticipant(
   const participant = room.participants.get(participantId);
   const wasCreator = participant?.isCreator ?? false;
   room.participants.delete(participantId);
-  room.initSegments.delete(participantId);
 
   return { wasCreator, count: room.participants.size };
 }
