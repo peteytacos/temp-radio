@@ -13,7 +13,7 @@ export function usePTT(
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const squelchRef = useRef<HTMLAudioElement | null>(null);
+  const squelchBufferRef = useRef<AudioBuffer | null>(null);
   const isSpeakingRef = useRef(false);
 
   // Use pre-acquired mic stream if available
@@ -21,18 +21,25 @@ export function usePTT(
     streamRef.current = micStream;
   }
 
-  // Preload squelch sound
+  // Pre-decode squelch sound into AudioBuffer for instant playback
   useEffect(() => {
-    const audio = new Audio("/squelch.wav");
-    audio.load();
-    squelchRef.current = audio;
-  }, []);
+    if (!audioCtx) return;
+    fetch("/squelch.wav")
+      .then((res) => res.arrayBuffer())
+      .then((buf) => audioCtx.decodeAudioData(buf))
+      .then((decoded) => {
+        squelchBufferRef.current = decoded;
+      })
+      .catch(() => {});
+  }, [audioCtx]);
 
   const playSquelch = useCallback(() => {
-    if (!squelchRef.current) return;
-    const clone = squelchRef.current.cloneNode() as HTMLAudioElement;
-    clone.play().catch(() => {});
-  }, []);
+    if (!squelchBufferRef.current || !audioCtx) return;
+    const source = audioCtx.createBufferSource();
+    source.buffer = squelchBufferRef.current;
+    source.connect(audioCtx.destination);
+    source.start();
+  }, [audioCtx]);
 
   const startPTT = useCallback(async () => {
     if (isSpeakingRef.current || !isConnected || !audioCtx) return;
