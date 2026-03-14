@@ -1,12 +1,22 @@
 "use client";
 
+// Overlay positions derived from radio.jpg (1206×2622px)
+// To recalibrate: measure pixel coords, divide by image dimensions
+const IMG = { w: 1206, h: 2622 } as const;
+const SCREEN = { top: 800, left: 245, right: 945, bottom: 1300 } as const;
+const BUTTON = { top: 1625, left: 660, right: 940, bottom: 1945 } as const;
+const LED = { x: 285, y: 1400 } as const;
+
+const pct = (v: number, total: number) => `${(v / total) * 100}%`;
+
 interface Props {
   roomId: string;
   isConnected: boolean;
+  isEnabled: boolean;
   isSpeaking: boolean;
-  speakingColor?: string;
   participantCount: number;
   roomClosed: boolean;
+  onActivate?: () => void;
   onPTTStart: () => void;
   onPTTEnd: () => void;
   children: React.ReactNode;
@@ -15,10 +25,11 @@ interface Props {
 export default function RadioShell({
   roomId,
   isConnected,
+  isEnabled,
   isSpeaking,
-  speakingColor,
   participantCount,
   roomClosed,
+  onActivate,
   onPTTStart,
   onPTTEnd,
   children,
@@ -36,10 +47,11 @@ export default function RadioShell({
       <div
         className="absolute overflow-hidden"
         style={{
-          top: "21.5%",
-          left: "9%",
-          width: "82%",
-          height: "25.5%",
+          top: pct(SCREEN.top, IMG.h),
+          left: pct(SCREEN.left, IMG.w),
+          width: pct(SCREEN.right - SCREEN.left, IMG.w),
+          height: pct(SCREEN.bottom - SCREEN.top, IMG.h),
+          borderRadius: "3%",
         }}
       >
         <div
@@ -56,17 +68,6 @@ export default function RadioShell({
             }}
           />
 
-          {/* Transmitting border pulse */}
-          {isSpeaking && (
-            <div
-              className="absolute inset-0 pointer-events-none animate-pulse"
-              style={{
-                border: `2px solid ${speakingColor ?? "#265327"}`,
-                opacity: 0.6,
-              }}
-            />
-          )}
-
           <div className="relative z-10 h-full flex flex-col p-[5%]">
             {children}
           </div>
@@ -74,16 +75,23 @@ export default function RadioShell({
       </div>
 
       {/* ===== POWER LED ===== */}
-      <div className="absolute" style={{ top: "48.5%", left: "12%" }}>
+      <div
+        className="absolute -translate-x-1/2 -translate-y-1/2"
+        style={{ top: pct(LED.y, IMG.h), left: pct(LED.x, IMG.w) }}
+      >
         <div
           className="w-2 h-2 rounded-full transition-all duration-300"
           style={{
-            backgroundColor: isConnected
-              ? "#4ade80"
-              : "rgba(74, 222, 128, 0.3)",
-            boxShadow: isConnected
-              ? "0 0 8px rgba(74, 222, 128, 0.8)"
-              : "none",
+            backgroundColor: !isEnabled
+              ? "#c53030"
+              : isSpeaking
+                ? "#4ade80"
+                : "#d4a017",
+            boxShadow: !isEnabled
+              ? "0 0 8px rgba(197, 48, 48, 0.8)"
+              : isSpeaking
+                ? "0 0 8px rgba(74, 222, 128, 0.8)"
+                : "0 0 8px rgba(212, 160, 23, 0.8)",
           }}
         />
       </div>
@@ -91,57 +99,64 @@ export default function RadioShell({
       {/* ===== STATUS TEXT ===== */}
       <div
         className="absolute"
-        style={{ top: "48%", left: "16%", width: "68%" }}
+        style={{
+          top: pct(LED.y, IMG.h),
+          left: pct(LED.x + 40, IMG.w),
+          width: pct(SCREEN.right - LED.x - 40, IMG.w),
+          transform: "translateY(-60%)",
+        }}
       >
         <span
           className="tracking-wider uppercase"
           style={{
             fontSize: "clamp(7px, 1.6vw, 10px)",
             fontFamily: "var(--font-mono)",
-            color: isSpeaking ? "#c53030" : "#7a8a6a",
+            color: !isEnabled ? "#c53030" : isSpeaking ? "#4ade80" : "#d4a017",
           }}
         >
           {roomClosed
             ? "STATION CLOSED"
             : isSpeaking
               ? "TRANSMITTING"
-              : isConnected
+              : isEnabled
                 ? "STANDBY"
-                : "CONNECTING..."}
+                : "DISABLED"}
         </span>
       </div>
 
       {/* ===== PTT BUTTON OVERLAY ===== */}
-      {!roomClosed && (
-        <button
-          className="absolute focus:outline-none"
-          style={{
-            top: "59%",
-            left: "64%",
-            width: "22%",
-            height: "11%",
-            background: isSpeaking
-              ? "rgba(197, 48, 48, 0.15)"
-              : "transparent",
-            border: "none",
-            borderRadius: "8px",
-            cursor: "pointer",
-          }}
-          onMouseDown={onPTTStart}
-          onMouseUp={onPTTEnd}
-          onMouseLeave={onPTTEnd}
-          onTouchStart={(e) => {
-            e.preventDefault();
-            onPTTStart();
-          }}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            onPTTEnd();
-          }}
-          onTouchCancel={onPTTEnd}
-          aria-label="Push to talk"
-        />
-      )}
+      <button
+        className="absolute focus:outline-none"
+        style={{
+          top: pct(BUTTON.top, IMG.h),
+          left: pct(BUTTON.left, IMG.w),
+          width: pct(BUTTON.right - BUTTON.left, IMG.w),
+          height: pct(BUTTON.bottom - BUTTON.top, IMG.h),
+          background: isSpeaking
+            ? "rgba(197, 48, 48, 0.15)"
+            : "transparent",
+          border: "none",
+          borderRadius: "8px",
+          cursor: "pointer",
+        }}
+        onMouseDown={onActivate ?? onPTTStart}
+        onMouseUp={onActivate ? undefined : onPTTEnd}
+        onMouseLeave={onActivate ? undefined : onPTTEnd}
+        onTouchStart={(e) => {
+          e.preventDefault();
+          (onActivate ?? onPTTStart)();
+        }}
+        onTouchEnd={
+          onActivate
+            ? undefined
+            : (e) => {
+                e.preventDefault();
+                onPTTEnd();
+              }
+        }
+        onTouchCancel={onActivate ? undefined : onPTTEnd}
+        aria-label={onActivate ? "Activate radio" : "Push to talk"}
+      />
     </div>
   );
 }

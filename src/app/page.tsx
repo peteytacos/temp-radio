@@ -11,7 +11,10 @@ export default function HomePage() {
     if (creating.current) return;
     creating.current = true;
 
-    fetch("/api/create-room", { method: "POST" })
+    const apiBase = process.env.NEXT_PUBLIC_WS_PORT
+      ? `http://${window.location.hostname}:${process.env.NEXT_PUBLIC_WS_PORT}`
+      : "";
+    fetch(`${apiBase}/api/create-room`, { method: "POST" })
       .then((res) => res.json())
       .then(({ roomId, token }) => {
         sessionStorage.setItem(`temp-radio-token-${roomId}`, token);

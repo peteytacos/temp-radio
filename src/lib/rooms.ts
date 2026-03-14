@@ -1,8 +1,8 @@
-import { WebSocket } from "ws";
 import { getColor } from "./colors";
 
 export interface Participant {
-  ws: WebSocket;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ws: any;
   id: number;
   color: string;
   isCreator: boolean;
@@ -40,7 +40,8 @@ export function getRoom(id: string): Room | undefined {
 
 export function addParticipant(
   roomId: string,
-  ws: WebSocket,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ws: any,
   token?: string
 ): Participant | null {
   const room = rooms.get(roomId);
@@ -75,7 +76,7 @@ export function closeRoom(id: string) {
   if (room) {
     room.closed = true;
     for (const [, p] of room.participants) {
-      if (p.ws.readyState === WebSocket.OPEN) {
+      if (p.ws.readyState === 1) {
         p.ws.send(JSON.stringify({ type: "room_closed" }));
         p.ws.close(4002, "Room closed");
       }

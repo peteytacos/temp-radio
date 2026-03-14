@@ -1,3 +1,5 @@
+// Standalone WebSocket + API server for development
+// Runs alongside `next dev` on a separate port
 import { nanoid } from "nanoid";
 import {
   createRoom,
@@ -7,16 +9,12 @@ import {
 } from "./src/lib/rooms";
 import { generateRoomId } from "./src/lib/room";
 import type { ServerWebSocket } from "bun";
-import { join } from "path";
 
 interface WSData {
   roomId: string;
   token?: string;
   participantId?: number;
 }
-
-const STATIC_DIR = join(import.meta.dir, "out");
-const PORT = parseInt(process.env.PORT || "3000");
 
 function broadcastToRoom(roomId: string, msg: object, excludeId?: number) {
   const room = getRoom(roomId);
@@ -29,13 +27,26 @@ function broadcastToRoom(roomId: string, msg: object, excludeId?: number) {
   }
 }
 
+const PORT = parseInt(process.env.WS_PORT || "3001");
+
 const server = Bun.serve<WSData>({
   port: PORT,
 
-  async fetch(req, server) {
+  fetch(req, server) {
     const url = new URL(req.url);
 
-    // --- WebSocket upgrade ---
+    // CORS for dev (Next.js on different port)
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    };
+
+    if (req.method === "OPTIONS") {
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    // WebSocket upgrade
     const wsMatch = url.pathname.match(/^\/ws\/([a-z0-9_-]+)$/);
     if (wsMatch) {
       const roomId = wsMatch[1];
@@ -45,39 +56,18 @@ const server = Bun.serve<WSData>({
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
 
-    // --- API: create room ---
+    // API: create room
     if (url.pathname === "/api/create-room" && req.method === "POST") {
       const id = generateRoomId();
       const token = nanoid(16);
       createRoom(id, token);
-      return Response.json({ roomId: id, url: `/r/${id}`, token });
+      return Response.json(
+        { roomId: id, url: `/r/${id}`, token },
+        { headers: corsHeaders }
+      );
     }
 
-    // --- Static file serving ---
-    let pathname = url.pathname;
-
-    // Serve index.html for root
-    if (pathname === "/") pathname = "/index.html";
-
-    // SPA fallback: /r/{anything} → /r/_.html (static export shell)
-    if (pathname.startsWith("/r/") && !pathname.includes(".")) {
-      pathname = "/r/_.html";
-    }
-
-    // Try exact file
-    const file = Bun.file(join(STATIC_DIR, pathname));
-    if (await file.exists()) return new Response(file);
-
-    // Try with .html extension
-    const htmlFile = Bun.file(join(STATIC_DIR, pathname + ".html"));
-    if (await htmlFile.exists()) return new Response(htmlFile);
-
-    // Try as directory index
-    const indexFile = Bun.file(join(STATIC_DIR, pathname, "index.html"));
-    if (await indexFile.exists()) return new Response(indexFile);
-
-    // 404 fallback to index
-    return new Response(Bun.file(join(STATIC_DIR, "index.html")));
+    return new Response("Not found", { status: 404 });
   },
 
   websocket: {
@@ -151,14 +141,12 @@ const server = Bun.serve<WSData>({
           // Invalid JSON
         }
       } else {
-        // Binary audio data
         const buf = Buffer.from(data);
 
         if (!room.initSegments.has(participantId)) {
           room.initSegments.set(participantId, buf);
         }
 
-        // Prepend speaker ID byte and relay to all others
         const tagged = Buffer.alloc(1 + buf.length);
         tagged[0] = participantId;
         buf.copy(tagged, 1);
@@ -185,4 +173,4 @@ const server = Bun.serve<WSData>({
   },
 });
 
-console.log(`📻 Temp Radio running on http://localhost:${server.port}`);
+console.log(`📻 WS server running on http://localhost:${server.port}`);

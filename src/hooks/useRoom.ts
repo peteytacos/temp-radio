@@ -8,7 +8,8 @@ import type { ServerMessage } from "@/lib/ws-protocol";
 export function useRoom(
   roomId: string,
   token: string | undefined,
-  audioCtx: AudioContext | null
+  audioCtx: AudioContext | null,
+  ready: boolean = true
 ) {
   const [myId, setMyId] = useState<number | null>(null);
   const [myColor, setMyColor] = useState("#265327");
@@ -29,7 +30,7 @@ export function useRoom(
   const audioCtxRef = useRef(audioCtx);
   audioCtxRef.current = audioCtx;
 
-  const wsUrl = roomClosed
+  const wsUrl = !ready || roomClosed
     ? null
     : `/ws/${roomId}${token ? `?token=${token}` : ""}`;
 
@@ -62,7 +63,7 @@ export function useRoom(
     [destroyPipeline]
   );
 
-  const { send } = useWebSocket(wsUrl, {
+  const { send, state } = useWebSocket(wsUrl, {
     onMessage: (event) => {
       if (typeof event.data === "string") {
         const msg: ServerMessage = JSON.parse(event.data);
@@ -158,7 +159,7 @@ export function useRoom(
     activeSpeakers,
     speakerAnalysers,
     roomClosed,
-    isConnected: !roomClosed && wsUrl !== null,
+    isConnected: state === "open",
     send,
   };
 }

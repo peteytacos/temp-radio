@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import RadioShell from "@/components/RadioShell";
 import WaveformCanvas, {
@@ -10,19 +10,28 @@ import { useRoom } from "@/hooks/useRoom";
 import { usePTT } from "@/hooks/usePTT";
 
 export default function RoomPage() {
-  const params = useParams();
-  const roomId = params.roomId as string;
   const router = useRouter();
+  const [roomId, setRoomId] = useState<string>("");
+
+  // Parse roomId from URL directly (static export doesn't hydrate useParams correctly)
+  useEffect(() => {
+    const match = window.location.pathname.match(/^\/r\/([^/]+)$/);
+    if (match) setRoomId(match[1]);
+  }, []);
 
   const [token, setToken] = useState<string | undefined>(undefined);
+  const [tokenReady, setTokenReady] = useState(false);
   const [activated, setActivated] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [radioEnabled, setRadioEnabled] = useState(true);
   const audioCtxRef = useRef<AudioContext | null>(null);
 
-  // Read token from sessionStorage (client-only)
+  // Read token from sessionStorage once roomId is known
   useEffect(() => {
+    if (!roomId) return;
     const stored = sessionStorage.getItem(`temp-radio-token-${roomId}`);
     if (stored) setToken(stored);
+    setTokenReady(true);
   }, [roomId]);
 
   const activate = useCallback(() => {
@@ -32,7 +41,7 @@ export default function RoomPage() {
     setActivated(true);
   }, []);
 
-  const room = useRoom(roomId, token, audioCtxRef.current);
+  const room = useRoom(roomId, tokenReady ? token : undefined, audioCtxRef.current, tokenReady);
   const ptt = usePTT(audioCtxRef.current, room.send, room.isConnected);
 
   // Build waveform sources for canvas
@@ -103,6 +112,7 @@ export default function RoomPage() {
     router.push("/");
   }, [router]);
 
+  const toggleRadio = useCallback(() => setRadioEnabled((v) => !v), []);
   const noopPTT = useCallback(() => {}, []);
 
   // ===== ACTIVATION GATE =====
@@ -112,9 +122,11 @@ export default function RoomPage() {
         <RadioShell
           roomId={roomId}
           isConnected={false}
+          isEnabled={false}
           isSpeaking={false}
           participantCount={0}
           roomClosed={false}
+          onActivate={activate}
           onPTTStart={noopPTT}
           onPTTEnd={noopPTT}
         >
@@ -155,6 +167,7 @@ export default function RoomPage() {
         <RadioShell
           roomId={roomId}
           isConnected={false}
+          isEnabled={false}
           isSpeaking={false}
           participantCount={0}
           roomClosed={true}
@@ -209,12 +222,12 @@ export default function RoomPage() {
       <RadioShell
         roomId={roomId}
         isConnected={room.isConnected}
+        isEnabled={radioEnabled}
         isSpeaking={ptt.isSpeaking}
-        speakingColor={room.myColor}
         participantCount={room.participantCount}
         roomClosed={false}
-        onPTTStart={ptt.startPTT}
-        onPTTEnd={ptt.stopPTT}
+        onPTTStart={radioEnabled ? ptt.startPTT : noopPTT}
+        onPTTEnd={radioEnabled ? ptt.stopPTT : noopPTT}
       >
         {/* Header */}
         <div
@@ -308,6 +321,23 @@ export default function RoomPage() {
             }}
           >
             SHARE
+          </button>
+          <button
+            onClick={toggleRadio}
+            className="px-2 py-1 rounded transition-colors ml-auto"
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "clamp(6px, 1.4vw, 9px)",
+              color: radioEnabled ? "#265327" : "#c53030",
+              backgroundColor: radioEnabled
+                ? "rgba(38, 83, 39, 0.1)"
+                : "rgba(197, 48, 48, 0.1)",
+              border: radioEnabled
+                ? "1px solid rgba(38, 83, 39, 0.2)"
+                : "1px solid rgba(197, 48, 48, 0.2)",
+            }}
+          >
+            {radioEnabled ? "ON" : "OFF"}
           </button>
         </div>
       </RadioShell>
