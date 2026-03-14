@@ -5,9 +5,9 @@ export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_SITE_URL || "https://temp-radio-production.up.railway.app"
   ),
-  title: "Squelch Radio — Looks like you're needed on the radio...",
+  title: "Squelch Radio",
   openGraph: {
-    title: "Squelch Radio - Looks like you're needed on the radio...",
+    title: "Looks like you're needed on the radio...",
     type: "website",
     images: ["/og.jpg"],
   },

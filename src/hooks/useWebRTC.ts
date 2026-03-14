@@ -28,16 +28,10 @@ export function useWebRTC(
     Map<number, AnalyserNode>
   >(new Map());
 
+  // Create a peer connection WITHOUT adding local tracks
   const createPeerConnection = useCallback(
     (remoteId: number): PeerState => {
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-
-      // Add raw mic track directly — no processing, no toggling
-      if (micStreamRef.current) {
-        for (const track of micStreamRef.current.getAudioTracks()) {
-          pc.addTrack(track, micStreamRef.current);
-        }
-      }
 
       // Handle ICE candidates
       pc.onicecandidate = (event) => {
@@ -51,8 +45,6 @@ export function useWebRTC(
           );
         }
       };
-
-      let peerGain: GainNode | null = null;
 
       // Handle incoming remote audio track
       pc.ontrack = (event) => {
@@ -72,7 +64,6 @@ export function useWebRTC(
         source.connect(gain);
         gain.connect(audioCtxRef.current.destination);
 
-        peerGain = gain;
         const state = peersRef.current.get(remoteId);
         if (state) {
           state.analyser = analyser;
@@ -102,9 +93,18 @@ export function useWebRTC(
     }
   }, []);
 
+  // Offerer: add track, then create offer
   const connectToPeer = useCallback(
     async (remoteId: number) => {
       const { pc } = createPeerConnection(remoteId);
+
+      // Add mic track before creating offer
+      if (micStreamRef.current) {
+        for (const track of micStreamRef.current.getAudioTracks()) {
+          pc.addTrack(track, micStreamRef.current);
+        }
+      }
+
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       sendRef.current(
@@ -118,11 +118,29 @@ export function useWebRTC(
     [createPeerConnection]
   );
 
+  // Answerer: set remote description first, then attach mic to existing transceiver
   const handleOffer = useCallback(
     async (fromId: number, sdp: string) => {
       destroyPeer(fromId);
       const { pc } = createPeerConnection(fromId);
+
       await pc.setRemoteDescription({ type: "offer", sdp });
+
+      // Attach mic track to the audio transceiver created by the offer
+      const micTrack = micStreamRef.current?.getAudioTracks()[0];
+      if (micTrack) {
+        const audioTransceiver = pc.getTransceivers().find(
+          (t) => t.receiver.track?.kind === "audio"
+        );
+        if (audioTransceiver) {
+          await audioTransceiver.sender.replaceTrack(micTrack);
+          audioTransceiver.direction = "sendrecv";
+        } else {
+          // Fallback: add track directly
+          pc.addTrack(micTrack, micStreamRef.current!);
+        }
+      }
+
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       sendRef.current(
