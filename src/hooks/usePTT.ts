@@ -26,8 +26,17 @@ export function usePTT(
       .catch(() => {});
   }, [audioCtx]);
 
-  // DIAGNOSTIC: Local waveform disabled to test if createMediaStreamSource
-  // interferes with WebRTC on iOS. Will re-enable once audio works.
+  // Set up analyser for local waveform visualization (once per stream)
+  // Uses a cloned stream so it doesn't interfere with WebRTC on iOS
+  useEffect(() => {
+    if (!audioCtx || !micStream || analyserRef.current) return;
+    const clone = micStream.clone();
+    const source = audioCtx.createMediaStreamSource(clone);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = FFT_SIZE;
+    source.connect(analyser);
+    analyserRef.current = analyser;
+  }, [audioCtx, micStream]);
 
   const playSquelch = useCallback(() => {
     if (!squelchBufferRef.current || !audioCtx) return;
