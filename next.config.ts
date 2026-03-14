@@ -1,11 +1,10 @@
 import type { NextConfig } from "next";
-import { execSync } from "child_process";
+import { readFileSync } from "fs";
 
 const buildNumber = (() => {
   try {
-    // Count commits to generate incrementing build number
-    const count = execSync("git rev-list --count HEAD").toString().trim();
-    return String(count).padStart(3, "0");
+    const n = readFileSync("BUILD_NUMBER", "utf-8").trim();
+    return String(n).padStart(3, "0");
   } catch {
     return "000";
   }
