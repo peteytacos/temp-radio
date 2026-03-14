@@ -106,15 +106,19 @@ export function useRoom(
             createPipeline(msg.id);
             break;
 
-          case "speaking_stop":
+          case "speaking_stop": {
             setActiveSpeakers((prev) => {
               const next = new Set(prev);
               next.delete(msg.id);
               return next;
             });
-            // Let pipeline drain, then destroy after a short delay
-            setTimeout(() => destroyPipeline(msg.id), 500);
+            // Let pipeline finish playing all buffered audio, then destroy
+            const pipeline = pipelinesRef.current.get(msg.id);
+            if (pipeline) {
+              pipeline.finish().then(() => destroyPipeline(msg.id));
+            }
             break;
+          }
 
           case "room_closed":
             setRoomClosed(true);

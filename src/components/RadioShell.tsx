@@ -35,11 +35,11 @@ export default function RadioShell({
   children,
 }: Props) {
   return (
-    <div className="w-full max-w-[480px] mx-auto relative select-none">
+    <div className="w-full max-w-[480px] mx-auto relative select-none max-h-[100dvh]">
       <img
         src="/radio.jpg"
         alt="Temp Radio"
-        className="w-full h-auto block"
+        className="w-full h-full block object-contain"
         draggable={false}
       />
 

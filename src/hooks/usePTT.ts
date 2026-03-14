@@ -31,6 +31,11 @@ export function usePTT(
   const startPTT = useCallback(async () => {
     if (isSpeakingRef.current || !isConnected || !audioCtx) return;
 
+    // Resume AudioContext in case browser auto-suspended it during inactivity
+    if (audioCtx.state === "suspended") {
+      await audioCtx.resume();
+    }
+
     playSquelch();
 
     // Acquire mic on first press, reuse after
@@ -72,16 +77,23 @@ export function usePTT(
   const stopPTT = useCallback(() => {
     if (!isSpeakingRef.current) return;
 
-    if (recorderRef.current?.state === "recording") {
-      recorderRef.current.stop();
-    }
-    recorderRef.current = null;
-
-    send(JSON.stringify({ type: "speaking_stop" }));
-    playSquelch();
-
     isSpeakingRef.current = false;
     setIsSpeaking(false);
+
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+
+    if (recorder?.state === "recording") {
+      // Wait for the final dataavailable to fire before signaling stop
+      recorder.onstop = () => {
+        send(JSON.stringify({ type: "speaking_stop" }));
+        playSquelch();
+      };
+      recorder.stop();
+    } else {
+      send(JSON.stringify({ type: "speaking_stop" }));
+      playSquelch();
+    }
   }, [send, playSquelch]);
 
   // Cleanup on unmount
