@@ -47,7 +47,7 @@ export function useWebRTC(
         const analyser = ctx.createAnalyser();
         analyser.fftSize = FFT_SIZE;
         const gain = ctx.createGain();
-        gain.gain.value = 0;
+        gain.gain.value = 1; // DIAGNOSTIC: always audible to test audio graph
 
         source.connect(analyser);
         analyser.connect(gain);
