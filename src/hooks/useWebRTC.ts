@@ -41,13 +41,20 @@ export function useWebRTC(
       const connectAudio = () => {
         const ctx = audioCtxRef.current;
         if (!ctx) { console.warn("[WebRTC] No AudioContext when connecting audio"); return; }
-        console.log(`[WebRTC] Connecting audio graph for peer ${remoteId}`);
+        console.log(`[WebRTC] Connecting audio for peer ${remoteId}`);
 
-        const source = ctx.createMediaStreamSource(stream);
+        // Use <audio> element for playback (createMediaStreamSource has issues with WebRTC streams)
+        const audio = new Audio();
+        audio.srcObject = stream;
+        audio.play().then(() => console.log(`[WebRTC] Audio element playing for peer ${remoteId}`))
+          .catch(e => console.error(`[WebRTC] Audio play failed for peer ${remoteId}`, e));
+
+        // Use createMediaElementSource for both waveform and gain control
+        const source = ctx.createMediaElementSource(audio);
         const analyser = ctx.createAnalyser();
         analyser.fftSize = FFT_SIZE;
         const gain = ctx.createGain();
-        gain.gain.value = 1; // DIAGNOSTIC: always audible to test audio graph
+        gain.gain.value = 0;
 
         source.connect(analyser);
         analyser.connect(gain);
