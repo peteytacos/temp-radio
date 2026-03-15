@@ -31,6 +31,8 @@ export function usePTT(
   useEffect(() => {
     if (!audioCtx || !micStream || analyserRef.current) return;
     const clone = micStream.clone();
+    // Keep clone's track enabled so analyser always has data (original track toggles for WebRTC)
+    clone.getAudioTracks().forEach((t) => { t.enabled = true; });
     const source = audioCtx.createMediaStreamSource(clone);
     const analyser = audioCtx.createAnalyser();
     analyser.fftSize = FFT_SIZE;

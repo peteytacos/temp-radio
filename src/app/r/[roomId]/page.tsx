@@ -127,8 +127,29 @@ export default function RoomPage() {
     router.push("/");
   }, [router]);
 
-  const toggleRadio = useCallback(() => setRadioEnabled((v) => !v), []);
+  const toggleRadio = useCallback(() => {
+    setRadioEnabled((prev) => {
+      if (prev) {
+        // Turning off — stop mic tracks to remove Dynamic Island indicator
+        micStreamRef.current?.getTracks().forEach((t) => t.stop());
+        micStreamRef.current = null;
+      }
+      return !prev;
+    });
+  }, []);
   const noopPTT = useCallback(() => {}, []);
+
+  // Stop mic when page is hidden (app backgrounded)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach((t) => t.stop());
+        micStreamRef.current = null;
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
 
   // ===== ACTIVATION GATE =====
   if (!activated) {
