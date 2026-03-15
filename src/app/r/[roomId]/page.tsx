@@ -24,6 +24,7 @@ export default function RoomPage() {
   const [activated, setActivated] = useState(false);
   const [copied, setCopied] = useState(false);
   const [radioEnabled, setRadioEnabled] = useState(true);
+  const [micDenied, setMicDenied] = useState(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
 
@@ -46,7 +47,7 @@ export default function RoomPage() {
         audio: true,
       });
     } catch {
-      // Continue without mic — user can still listen
+      setMicDenied(true);
     }
 
     setActivated(true);
@@ -291,6 +292,20 @@ export default function RoomPage() {
             <span>{room.participantCount}</span>
           </div>
         </div>
+
+        {/* Mic denied warning */}
+        {micDenied && (
+          <div
+            className="text-center mt-[2%] tracking-[0.05em] uppercase"
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "clamp(6px, 1.4vw, 8px)",
+              color: "#c53030",
+            }}
+          >
+            MIC BLOCKED — ENABLE IN BROWSER SETTINGS
+          </div>
+        )}
 
         {/* Controls row */}
         <div className="flex gap-1.5 mt-[2%]">
