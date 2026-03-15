@@ -39,33 +39,30 @@ export function useWebRTC(
       if (!stream) { console.warn("[WebRTC] No stream in ontrack"); return; }
 
       const connectAudio = () => {
-        const ctx = audioCtxRef.current;
-        if (!ctx) { console.warn("[WebRTC] No AudioContext when connecting audio"); return; }
         console.log(`[WebRTC] Connecting audio for peer ${remoteId}`);
 
-        // Use <audio> element for playback (createMediaStreamSource has issues with WebRTC streams)
+        // DIAGNOSTIC: play remote stream directly — no Web Audio at all
         const audio = new Audio();
         audio.srcObject = stream;
-        audio.play().then(() => console.log(`[WebRTC] Audio element playing for peer ${remoteId}`))
-          .catch(e => console.error(`[WebRTC] Audio play failed for peer ${remoteId}`, e));
+        audio.autoplay = true;
+        audio.play()
+          .then(() => console.log(`[WebRTC] Audio element playing for peer ${remoteId}`))
+          .catch(e => console.error(`[WebRTC] Audio play FAILED for peer ${remoteId}`, e));
 
-        // Use createMediaElementSource for both waveform and gain control
-        const source = ctx.createMediaElementSource(audio);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = FFT_SIZE;
-        const gain = ctx.createGain();
-        gain.gain.value = 0;
+        // Still set up analyser for waveform (may not work but won't affect playback)
+        const ctx = audioCtxRef.current;
+        if (ctx) {
+          const source = ctx.createMediaStreamSource(new MediaStream([stream.getAudioTracks()[0].clone()]));
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = FFT_SIZE;
+          source.connect(analyser);
 
-        source.connect(analyser);
-        analyser.connect(gain);
-        gain.connect(ctx.destination);
-
-        const state = peersRef.current.get(remoteId);
-        if (state) {
-          state.analyser = analyser;
-          state.gain = gain;
+          const state = peersRef.current.get(remoteId);
+          if (state) {
+            state.analyser = analyser;
+          }
+          setRemoteAnalysers((prev) => new Map(prev).set(remoteId, analyser));
         }
-        setRemoteAnalysers((prev) => new Map(prev).set(remoteId, analyser));
       };
 
       // Wait for track to unmute (receive actual data) before creating audio graph
