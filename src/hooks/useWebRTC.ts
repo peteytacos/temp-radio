@@ -10,7 +10,7 @@ const RTC_CONFIG: RTCConfiguration = {
 interface PeerState {
   pc: RTCPeerConnection;
   analyser: AnalyserNode | null;
-  gain: GainNode | null;
+  audio: HTMLAudioElement | null;
 }
 
 export function useWebRTC(
@@ -40,29 +40,24 @@ export function useWebRTC(
         const ctx = audioCtxRef.current;
         if (!ctx) return;
 
-        // Audio element decodes WebRTC stream (works cross-browser)
-        // Started unmuted so iOS doesn't block it — gain controls actual output
+        // Audio element for playback (works cross-browser with WebRTC)
         const audio = new Audio();
         audio.srcObject = stream;
         audio.autoplay = true;
+        audio.volume = 0; // Start silent, unmuted by speaking_start
         audio.play().catch(() => {});
 
-        // Route audio element through Web Audio for gain control + analyser
-        // createMediaElementSource captures the element's output
-        const source = ctx.createMediaElementSource(audio);
+        // Cloned track for waveform analyser (createMediaStreamSource on clone works)
+        const clonedStream = new MediaStream([stream.getAudioTracks()[0].clone()]);
+        const source = ctx.createMediaStreamSource(clonedStream);
         const analyser = ctx.createAnalyser();
         analyser.fftSize = FFT_SIZE;
-        const gain = ctx.createGain();
-        gain.gain.value = 0; // Start silent, unmuted by speaking_start
-
         source.connect(analyser);
-        analyser.connect(gain);
-        gain.connect(ctx.destination);
 
         const state = peersRef.current.get(remoteId);
         if (state) {
           state.analyser = analyser;
-          state.gain = gain;
+          state.audio = audio;
         }
         setRemoteAnalysers((prev) => new Map(prev).set(remoteId, analyser));
       };
@@ -90,6 +85,10 @@ export function useWebRTC(
   const destroyPeer = useCallback((remoteId: number) => {
     const state = peersRef.current.get(remoteId);
     if (state) {
+      if (state.audio) {
+        state.audio.pause();
+        state.audio.srcObject = null;
+      }
       state.pc.close();
       peersRef.current.delete(remoteId);
       setRemoteAnalysers((prev) => {
@@ -103,7 +102,7 @@ export function useWebRTC(
   const connectToPeer = useCallback(async (remoteId: number) => {
     destroyPeer(remoteId);
     const pc = new RTCPeerConnection(RTC_CONFIG);
-    peersRef.current.set(remoteId, { pc, analyser: null, gain: null });
+    peersRef.current.set(remoteId, { pc, analyser: null, audio: null });
 
     if (micStreamRef.current) {
       micStreamRef.current.getAudioTracks().forEach((t) => pc.addTrack(t, micStreamRef.current!));
@@ -124,7 +123,7 @@ export function useWebRTC(
   const handleOffer = useCallback(async (fromId: number, sdp: string) => {
     destroyPeer(fromId);
     const pc = new RTCPeerConnection(RTC_CONFIG);
-    peersRef.current.set(fromId, { pc, analyser: null, gain: null });
+    peersRef.current.set(fromId, { pc, analyser: null, audio: null });
 
     setupIce(fromId, pc);
     setupRemoteAudio(fromId, pc);
@@ -164,8 +163,8 @@ export function useWebRTC(
 
   const setRemoteMuted = useCallback((remoteId: number, muted: boolean) => {
     const state = peersRef.current.get(remoteId);
-    if (state?.gain) {
-      state.gain.gain.value = muted ? 0 : 1;
+    if (state?.audio) {
+      state.audio.volume = muted ? 0 : 1;
     }
   }, []);
 

@@ -43,9 +43,12 @@ export default function RoomPage() {
 
     // Request mic permission during activation (user gesture)
     try {
-      micStreamRef.current = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
+      // Start muted — PTT enables the track
+      stream.getAudioTracks().forEach((t) => { t.enabled = false; });
+      micStreamRef.current = stream;
     } catch {
       setMicDenied(true);
     }

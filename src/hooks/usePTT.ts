@@ -56,12 +56,17 @@ export function usePTT(
       audioCtx.resume();
     }
 
+    // Unmute mic track so WebRTC sends audio
+    if (micStream) {
+      micStream.getAudioTracks().forEach((t) => { t.enabled = true; });
+    }
+
     playSquelch();
     send(JSON.stringify({ type: "speaking_start" }));
 
     isSpeakingRef.current = true;
     setIsSpeaking(true);
-  }, [isConnected, audioCtx, send, playSquelch]);
+  }, [isConnected, audioCtx, send, playSquelch, micStream]);
 
   const stopPTT = useCallback(() => {
     if (!isSpeakingRef.current) return;
@@ -69,9 +74,14 @@ export function usePTT(
     isSpeakingRef.current = false;
     setIsSpeaking(false);
 
+    // Mute mic track so WebRTC stops sending audio
+    if (micStream) {
+      micStream.getAudioTracks().forEach((t) => { t.enabled = false; });
+    }
+
     playSquelch();
     send(JSON.stringify({ type: "speaking_stop" }));
-  }, [send, playSquelch]);
+  }, [send, playSquelch, micStream]);
 
   return {
     isSpeaking,
