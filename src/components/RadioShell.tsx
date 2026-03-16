@@ -31,7 +31,7 @@ function formatDiagLine(d: ConnectionDiagnostics, isConnected: boolean): string 
   const ping = d.rttMs !== null ? `${d.rttMs}ms` : "--";
   const links = `${d.connectedPeers}/${d.totalPeers}`;
   const ice = d.iceState ? d.iceState.toUpperCase().slice(0, 4) : "--";
-  return `${type}  PING:${ping}  L:${links}  ICE:${ice}  C:${d.connectAttempts}`;
+  return `${type}  PING:${ping}  LINKS:${links}  ICE:${ice}`;
 }
 
 export default function RadioShell({
@@ -174,19 +174,6 @@ export default function RadioShell({
           >
             {diagLine}
           </span>
-          {diagnostics?.lastError && (
-            <div
-              className="tracking-[0.08em]"
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "clamp(4px, 1vw, 7px)",
-                color: diagnostics.lastError.startsWith("sent") ? "rgba(212, 160, 23, 0.6)" : "#c53030",
-                marginTop: "2px",
-              }}
-            >
-              {diagnostics.lastError}
-            </div>
-          )}
         </div>
       )}
 

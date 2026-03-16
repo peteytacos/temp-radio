@@ -82,25 +82,27 @@ export async function getTurnCredentials(): Promise<TurnCredentials> {
     }
 
     const body = await res.json();
-    const { username, credential } = body as {
+    // Cloudflare returns { iceServers: { urls, username, credential } }
+    const cfIceServer = body.iceServers as {
+      urls: string[];
       username: string;
       credential: string;
     };
+    if (!cfIceServer?.username || !cfIceServer?.credential) {
+      console.error("[turn] credential response missing username/credential:", JSON.stringify(body));
+      lastError = "missing credentials in response";
+      return cached?.data ?? STUN_ONLY;
+    }
     console.log("[turn] fresh credentials obtained successfully");
     lastError = null;
 
     const data: TurnCredentials = {
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
         {
-          urls: [
-            "turn:turn.cloudflare.com:3478?transport=udp",
-            "turn:turn.cloudflare.com:3478?transport=tcp",
-            "turns:turn.cloudflare.com:5349?transport=tcp",
-          ],
-          username,
-          credential,
+          urls: cfIceServer.urls,
+          username: cfIceServer.username,
+          credential: cfIceServer.credential,
         },
       ],
     };
