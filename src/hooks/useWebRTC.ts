@@ -319,6 +319,44 @@ export function useWebRTC(
     }
   }, []);
 
+  // When micStream changes (e.g. after resume), hot-swap the track into existing peers
+  useEffect(() => {
+    if (!micStream) return;
+    const newTrack = micStream.getAudioTracks()[0];
+    if (!newTrack) return;
+
+    for (const [remoteId, state] of peersRef.current) {
+      if (state.pc.connectionState === "closed") continue;
+      const audioSender = state.pc.getSenders().find(
+        (s) => s.track?.kind === "audio"
+      );
+      if (audioSender) {
+        // Sender exists (track may be ended) — replace without renegotiation
+        audioSender.replaceTrack(newTrack).catch(() => {});
+      } else {
+        // No audio sender — add track and renegotiate
+        state.pc.addTrack(newTrack, micStream);
+        const version = state.version;
+        state.pc.createOffer()
+          .then((offer) => {
+            const check = peersRef.current.get(remoteId);
+            if (!check || check.version !== version) return;
+            return state.pc.setLocalDescription(offer);
+          })
+          .then(() => {
+            const check = peersRef.current.get(remoteId);
+            if (!check || check.version !== version) return;
+            sendRef.current(JSON.stringify({
+              type: "rtc_offer",
+              targetId: remoteId,
+              sdp: state.pc.localDescription!.sdp,
+            }));
+          })
+          .catch(() => {});
+      }
+    }
+  }, [micStream]);
+
   useEffect(() => {
     return () => {
       for (const [, state] of peersRef.current) {

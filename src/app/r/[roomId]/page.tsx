@@ -26,8 +26,10 @@ export default function RoomPage() {
   const [copied, setCopied] = useState(false);
   const [radioEnabled, setRadioEnabled] = useState(true);
   const [micDenied, setMicDenied] = useState(false);
+  const [micLost, setMicLost] = useState(false);
   const [rtcConfig, setRtcConfig] = useState<RTCConfiguration | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const [micStream, setMicStream] = useState<MediaStream | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
 
   // Read token from sessionStorage once roomId is known
@@ -63,6 +65,7 @@ export default function RoomPage() {
           // Start muted — PTT enables the track
           stream.getAudioTracks().forEach((t) => { t.enabled = false; });
           micStreamRef.current = stream;
+          setMicStream(stream);
         }),
     ]);
 
@@ -73,8 +76,8 @@ export default function RoomPage() {
     setActivated(true);
   }, []);
 
-  const room = useRoom(roomId, tokenReady ? token : undefined, audioCtxRef.current, micStreamRef.current, activated && tokenReady, rtcConfig);
-  const ptt = usePTT(audioCtxRef.current, room.send, room.isConnected, micStreamRef.current);
+  const room = useRoom(roomId, tokenReady ? token : undefined, audioCtxRef.current, micStream, activated && tokenReady, rtcConfig);
+  const ptt = usePTT(audioCtxRef.current, room.send, room.isConnected, micStream);
 
   // Prevent screen from sleeping while radio is active
   useWakeLock(activated && radioEnabled);
@@ -155,10 +158,35 @@ export default function RoomPage() {
         // Turning off — stop mic tracks to remove Dynamic Island indicator
         micStreamRef.current?.getTracks().forEach((t) => t.stop());
         micStreamRef.current = null;
+        setMicStream(null);
+        setMicLost(true);
       }
       return !prev;
     });
   }, [ptt]);
+  // Re-acquire mic after it was killed by backgrounding or radio toggle
+  const resumeMic = useCallback(async () => {
+    if (audioCtxRef.current?.state === "suspended") {
+      audioCtxRef.current.resume();
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      stream.getAudioTracks().forEach((t) => { t.enabled = false; });
+      micStreamRef.current = stream;
+      setMicStream(stream);
+      setMicLost(false);
+      setMicDenied(false);
+    } catch {
+      setMicDenied(true);
+    }
+  }, []);
+
   const noopPTT = useCallback(() => {}, []);
 
   // Stop mic when page is hidden (app backgrounded)
@@ -172,6 +200,8 @@ export default function RoomPage() {
         if (micStreamRef.current) {
           micStreamRef.current.getTracks().forEach((t) => t.stop());
           micStreamRef.current = null;
+          setMicStream(null);
+          setMicLost(true);
         }
       }
     };
@@ -401,6 +431,23 @@ export default function RoomPage() {
             <span>{room.participantCount}</span>
           </div>
         </div>
+
+        {/* Mic resume banner */}
+        {micLost && !micDenied && (
+          <button
+            onClick={resumeMic}
+            className="w-full text-center mt-[2%] py-[2%] tracking-[0.1em] uppercase rounded-sm animate-pulse"
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "clamp(7px, 1.6vw, 10px)",
+              color: "#265327",
+              backgroundColor: "rgba(38, 83, 39, 0.15)",
+              border: "1px solid rgba(38, 83, 39, 0.3)",
+            }}
+          >
+            MIC DISCONNECTED — TAP TO RESUME
+          </button>
+        )}
 
         {/* Mic denied warning */}
         {micDenied && (
