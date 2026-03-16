@@ -153,6 +153,8 @@ export default function RadioShell({
           border: "none",
           borderRadius: "8px",
           cursor: "pointer",
+          WebkitTouchCallout: "none",
+          WebkitUserSelect: "none",
         }}
         onMouseDown={onActivate ?? onPTTStart}
         onMouseUp={onActivate ? undefined : onPTTEnd}
@@ -170,6 +172,7 @@ export default function RadioShell({
               }
         }
         onTouchCancel={onActivate ? undefined : onPTTEnd}
+        onContextMenu={(e) => e.preventDefault()}
         aria-label={onActivate ? "Activate radio" : "Push to talk"}
       />
     </div>

@@ -43,6 +43,15 @@ export function useRoom(
             new Map(msg.participants.map((p) => [p.id, p.color]))
           );
           setParticipantCount(msg.participants.length);
+          // Destroy any stale peers from a previous connection, then
+          // initiate WebRTC to every existing participant in the room.
+          // This handles both first join and WS reconnection scenarios.
+          webrtc.destroyAllPeers();
+          for (const p of msg.participants) {
+            if (p.id !== msg.id) {
+              webrtc.connectToPeer(p.id);
+            }
+          }
           break;
 
         case "participant_joined":

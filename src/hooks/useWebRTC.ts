@@ -279,6 +279,12 @@ export function useWebRTC(
     destroyPeer(id);
   }, [destroyPeer]);
 
+  const destroyAllPeers = useCallback(() => {
+    for (const [id] of peersRef.current) {
+      destroyPeer(id);
+    }
+  }, [destroyPeer]);
+
   const setRemoteMuted = useCallback((remoteId: number, muted: boolean) => {
     const state = peersRef.current.get(remoteId);
     if (!state) return;
@@ -307,6 +313,7 @@ export function useWebRTC(
     handleAnswer,
     handleIceCandidate,
     handleParticipantLeft,
+    destroyAllPeers,
     setRemoteMuted,
   };
 }

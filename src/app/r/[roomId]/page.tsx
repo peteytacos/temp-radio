@@ -8,6 +8,7 @@ import WaveformCanvas, {
 } from "@/components/WaveformCanvas";
 import { useRoom } from "@/hooks/useRoom";
 import { usePTT } from "@/hooks/usePTT";
+import { useWakeLock } from "@/hooks/useWakeLock";
 
 export default function RoomPage() {
   const router = useRouter();
@@ -44,7 +45,11 @@ export default function RoomPage() {
     // Request mic permission during activation (user gesture)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       });
       // Start muted — PTT enables the track
       stream.getAudioTracks().forEach((t) => { t.enabled = false; });
@@ -58,6 +63,9 @@ export default function RoomPage() {
 
   const room = useRoom(roomId, tokenReady ? token : undefined, audioCtxRef.current, micStreamRef.current, activated && tokenReady);
   const ptt = usePTT(audioCtxRef.current, room.send, room.isConnected, micStreamRef.current);
+
+  // Prevent screen from sleeping while radio is active
+  useWakeLock(activated && radioEnabled);
 
   // Build waveform sources for canvas
   const waveformSources = useMemo(() => {

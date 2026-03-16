@@ -6,9 +6,12 @@ import {
   getRoom,
   addParticipant,
   removeParticipant,
+  closeRoom,
 } from "./src/lib/rooms";
 import { generateRoomId } from "./src/lib/room";
 import { allowMessage } from "./src/lib/rate-limit";
+import { allowRoomCreation } from "./src/lib/api-rate-limit";
+import { validateMessage } from "./src/lib/validate-message";
 import type { ServerWebSocket } from "bun";
 
 interface WSData {
@@ -72,6 +75,15 @@ const server = Bun.serve<WSData>({
 
     // API: create room
     if (url.pathname === "/api/create-room" && req.method === "POST") {
+      const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+        || server.requestIP(req)?.address
+        || "unknown";
+      if (!allowRoomCreation(ip)) {
+        return Response.json(
+          { error: "Too many rooms created" },
+          { status: 429, headers: corsHeaders }
+        );
+      }
       const id = generateRoomId();
       const token = nanoid(16);
       createRoom(id, token);
@@ -153,47 +165,34 @@ const server = Bun.serve<WSData>({
         return;
       }
 
-      try {
-        const msg = JSON.parse(data);
-        switch (msg.type) {
-          case "speaking_start":
-            broadcastToRoom(
-              roomId,
-              { type: "speaking_start", id: participantId },
-              participantId
-            );
-            break;
-          case "speaking_stop":
-            broadcastToRoom(
-              roomId,
-              { type: "speaking_stop", id: participantId },
-              participantId
-            );
-            break;
-          case "rtc_offer":
-            sendToParticipant(roomId, msg.targetId, {
-              type: "rtc_offer",
-              fromId: participantId,
-              sdp: msg.sdp,
-            });
-            break;
-          case "rtc_answer":
-            sendToParticipant(roomId, msg.targetId, {
-              type: "rtc_answer",
-              fromId: participantId,
-              sdp: msg.sdp,
-            });
-            break;
-          case "rtc_ice":
-            sendToParticipant(roomId, msg.targetId, {
-              type: "rtc_ice",
-              fromId: participantId,
-              candidate: msg.candidate,
-            });
-            break;
-        }
-      } catch {
-        // Invalid JSON
+      const participantIds = new Set(room.participants.keys());
+      const msg = validateMessage(data, participantIds, participantId);
+      if (!msg) return;
+
+      switch (msg.type) {
+        case "speaking_start":
+        case "speaking_stop":
+          broadcastToRoom(
+            roomId,
+            { type: msg.type, id: participantId },
+            participantId
+          );
+          break;
+        case "rtc_offer":
+        case "rtc_answer":
+          sendToParticipant(roomId, msg.targetId, {
+            type: msg.type,
+            fromId: participantId,
+            sdp: msg.sdp,
+          });
+          break;
+        case "rtc_ice":
+          sendToParticipant(roomId, msg.targetId, {
+            type: "rtc_ice",
+            fromId: participantId,
+            candidate: msg.candidate,
+          });
+          break;
       }
     },
 
@@ -201,12 +200,17 @@ const server = Bun.serve<WSData>({
       const { roomId, participantId } = ws.data;
       if (participantId === undefined) return;
 
-      const { count } = removeParticipant(roomId, participantId);
-      broadcastToRoom(roomId, {
-        type: "participant_left",
-        id: participantId,
-        count,
-      });
+      const { wasCreator, count } = removeParticipant(roomId, participantId);
+      if (wasCreator) {
+        // Creator left — close room and notify all remaining participants
+        closeRoom(roomId);
+      } else {
+        broadcastToRoom(roomId, {
+          type: "participant_left",
+          id: participantId,
+          count,
+        });
+      }
     },
   },
 });
