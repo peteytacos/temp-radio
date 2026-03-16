@@ -180,11 +180,11 @@ export default function RadioShell({
               style={{
                 fontFamily: "var(--font-mono)",
                 fontSize: "clamp(4px, 1vw, 7px)",
-                color: "#c53030",
+                color: diagnostics.lastError.startsWith("sent") ? "rgba(212, 160, 23, 0.6)" : "#c53030",
                 marginTop: "2px",
               }}
             >
-              ERR: {diagnostics.lastError}
+              {diagnostics.lastError}
             </div>
           )}
         </div>

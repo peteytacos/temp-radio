@@ -205,12 +205,13 @@ export function useWebRTC(
         return;
       }
 
-      sendRef.current(JSON.stringify({
+      const payload = JSON.stringify({
         type: "rtc_offer",
         targetId: remoteId,
         sdp: pc.localDescription!.sdp,
-      }));
-      lastErrorRef.current = null;
+      });
+      sendRef.current(payload);
+      lastErrorRef.current = `sent ${payload.length}b to ${remoteId}`;
     } catch (err) {
       lastErrorRef.current = String(err).slice(0, 60);
     }
