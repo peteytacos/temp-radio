@@ -471,23 +471,7 @@ export default function RoomPage() {
           >
             SHARE
           </button>
-          <button
-            onClick={toggleRadio}
-            className="px-2 py-1 rounded transition-colors ml-auto"
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "clamp(6px, 1.4vw, 9px)",
-              color: radioEnabled ? "#265327" : "#c53030",
-              backgroundColor: radioEnabled
-                ? "rgba(38, 83, 39, 0.1)"
-                : "rgba(197, 48, 48, 0.1)",
-              border: radioEnabled
-                ? "1px solid rgba(38, 83, 39, 0.2)"
-                : "1px solid rgba(197, 48, 48, 0.2)",
-            }}
-          >
-            {radioEnabled ? "ON" : "OFF"}
-          </button>
+          {/* ON/OFF button hidden for now */}
         </div>
 
       </RadioShell>

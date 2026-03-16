@@ -86,21 +86,7 @@ export default function RadioShell({
             {children}
           </div>
 
-          {/* Build number */}
-          <div
-            className="absolute pointer-events-none"
-            style={{
-              bottom: 2,
-              right: "5%",
-              fontFamily: "var(--font-mono)",
-              fontSize: "clamp(5px, 1vw, 7px)",
-              color: "rgba(38, 83, 39, 0.5)",
-              zIndex: 20,
-              userSelect: "none",
-            }}
-          >
-            build:{process.env.NEXT_PUBLIC_BUILD_NUMBER}
-          </div>
+          {/* Build number (hidden for now) */}
         </div>
       </div>
 
@@ -154,28 +140,7 @@ export default function RadioShell({
         </span>
       </div>
 
-      {/* ===== DIAGNOSTICS (right-aligned under green screen) ===== */}
-      {diagLine && (
-        <div
-          className="absolute"
-          style={{
-            top: pct(SCREEN.bottom + 45, IMG.h),
-            right: pct(IMG.w - SCREEN.right + 35, IMG.w),
-            textAlign: "right",
-          }}
-        >
-          <span
-            className="tracking-[0.12em] uppercase"
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "clamp(5px, 1.2vw, 8px)",
-              color: "rgba(212, 160, 23, 0.8)",
-            }}
-          >
-            {diagLine}
-          </span>
-        </div>
-      )}
+      {/* ===== DIAGNOSTICS (hidden for now) ===== */}
 
       {/* ===== PTT BUTTON OVERLAY ===== */}
       <button
