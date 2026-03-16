@@ -142,6 +142,7 @@ export function useRoom(
     speakerAnalysers: webrtc.remoteAnalysers,
     roomClosed,
     roomFull,
+    relayWarning: webrtc.relayWarning,
     isConnected: state === "open",
     send: sendString,
   };

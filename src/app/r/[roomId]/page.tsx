@@ -415,6 +415,20 @@ export default function RoomPage() {
           </div>
         )}
 
+        {/* Relay warning — peers failing without TURN */}
+        {room.relayWarning && (
+          <div
+            className="text-center mt-[2%] tracking-[0.05em] uppercase"
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "clamp(6px, 1.4vw, 8px)",
+              color: "#c53030",
+            }}
+          >
+            CONNECTION FAILED — RELAY SERVICE UNAVAILABLE
+          </div>
+        )}
+
         {/* Controls row */}
         <div className="flex gap-1.5 mt-[2%]">
           <button

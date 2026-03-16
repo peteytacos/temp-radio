@@ -49,6 +49,7 @@ export function useWebRTC(
   const [remoteAnalysers, setRemoteAnalysers] = useState<
     Map<number, AnalyserNode>
   >(new Map());
+  const [peersFailed, setPeersFailed] = useState(false);
 
   const setupRemoteAudio = useCallback((remoteId: number, pc: RTCPeerConnection) => {
     pc.ontrack = (event) => {
@@ -192,7 +193,10 @@ export function useWebRTC(
       const state = peersRef.current.get(remoteId);
       if (!state || state.version !== version) return;
 
-      if (pc.connectionState === "failed") {
+      if (pc.connectionState === "connected") {
+        setPeersFailed(false);
+      } else if (pc.connectionState === "failed") {
+        setPeersFailed(true);
         // Attempt ICE restart after a short delay
         if (state.iceRestartTimer) clearTimeout(state.iceRestartTimer);
         state.iceRestartTimer = setTimeout(async () => {
@@ -312,6 +316,13 @@ export function useWebRTC(
     };
   }, [cleanupPeerResources]);
 
+  // True when peers are failing and no TURN relay is configured
+  const hasTurn = rtcConfigRef.current.iceServers?.some((s) => {
+    const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+    return urls.some((u) => u.startsWith("turn:") || u.startsWith("turns:"));
+  }) ?? false;
+  const relayWarning = peersFailed && !hasTurn;
+
   return {
     remoteAnalysers,
     connectToPeer,
@@ -321,5 +332,6 @@ export function useWebRTC(
     handleParticipantLeft,
     destroyAllPeers,
     setRemoteMuted,
+    relayWarning,
   };
 }
