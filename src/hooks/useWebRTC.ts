@@ -3,9 +3,28 @@
 import { useRef, useCallback, useEffect, useState } from "react";
 import { FFT_SIZE } from "@/lib/audio-config";
 
-const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-};
+function buildRtcConfig(): RTCConfiguration {
+  const iceServers: RTCIceServer[] = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+  ];
+
+  const turnUrl = process.env.NEXT_PUBLIC_TURN_URL;
+  const turnUser = process.env.NEXT_PUBLIC_TURN_USERNAME;
+  const turnCred = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
+
+  if (turnUrl) {
+    iceServers.push({
+      urls: turnUrl,
+      username: turnUser ?? "",
+      credential: turnCred ?? "",
+    });
+  }
+
+  return { iceServers };
+}
+
+const RTC_CONFIG = buildRtcConfig();
 
 /** How long to wait before attempting ICE restart after failure */
 const ICE_RESTART_DELAY = 2_000;
