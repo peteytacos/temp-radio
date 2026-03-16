@@ -204,6 +204,62 @@ export default function RoomPage() {
     );
   }
 
+  // ===== ROOM FULL =====
+  if (room.roomFull) {
+    return (
+      <div className="min-h-screen bg-[#0a0a06] flex items-center justify-center">
+        <RadioShell
+          roomId={roomId}
+          isConnected={false}
+          isEnabled={false}
+          isSpeaking={false}
+          participantCount={0}
+          roomClosed={false}
+          onPTTStart={noopPTT}
+          onPTTEnd={noopPTT}
+        >
+          <div className="flex-1 flex flex-col items-center justify-center">
+            <div
+              className="font-bold tracking-[0.2em] uppercase"
+              style={{
+                color: "#265327",
+                fontFamily: "var(--font-mono)",
+                fontSize: "clamp(10px, 2.5vw, 16px)",
+              }}
+            >
+              STATION FULL
+            </div>
+            <div
+              className="mt-2 tracking-[0.1em] uppercase"
+              style={{
+                color: "rgba(38, 83, 39, 0.5)",
+                fontFamily: "var(--font-mono)",
+                fontSize: "clamp(7px, 1.6vw, 10px)",
+              }}
+            >
+              Max participants reached
+            </div>
+          </div>
+          <div className="flex gap-1.5 mt-[2%]">
+            <button
+              onClick={handleNewRadio}
+              className="px-2 py-1 rounded transition-colors"
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: "clamp(6px, 1.4vw, 9px)",
+                color: "#265327",
+                backgroundColor: "rgba(38, 83, 39, 0.1)",
+                border: "1px solid rgba(38, 83, 39, 0.2)",
+              }}
+            >
+              NEW RADIO
+            </button>
+          </div>
+        </RadioShell>
+      </div>
+    );
+  }
+
   // ===== ROOM CLOSED =====
   if (room.roomClosed) {
     return (

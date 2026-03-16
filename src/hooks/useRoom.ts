@@ -23,8 +23,9 @@ export function useRoom(
     new Set()
   );
   const [roomClosed, setRoomClosed] = useState(false);
+  const [roomFull, setRoomFull] = useState(false);
 
-  const wsUrl = !ready || roomClosed
+  const wsUrl = !ready || roomClosed || roomFull
     ? null
     : `/ws/${roomId}${token ? `?token=${token}` : ""}`;
 
@@ -96,6 +97,10 @@ export function useRoom(
         case "room_closed":
           setRoomClosed(true);
           break;
+
+        case "room_full":
+          setRoomFull(true);
+          break;
       }
     },
     onClose: (event) => {
@@ -125,6 +130,7 @@ export function useRoom(
     activeSpeakers,
     speakerAnalysers: webrtc.remoteAnalysers,
     roomClosed,
+    roomFull,
     isConnected: state === "open",
     send: sendString,
   };

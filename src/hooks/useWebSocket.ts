@@ -10,6 +10,17 @@ interface UseWebSocketOptions {
   onClose?: (event: CloseEvent) => void;
 }
 
+/** Close codes that mean "don't reconnect" */
+const PERMANENT_CLOSE_CODES = new Set([
+  4002, // Room closed by host
+  4004, // Room not found
+  4008, // Duplicate tab
+  4029, // Rate limited
+]);
+
+const MAX_RECONNECT_DELAY = 16_000;
+const BASE_RECONNECT_DELAY = 1_000;
+
 export function useWebSocket(
   url: string | null,
   options: UseWebSocketOptions = {}
@@ -18,42 +29,69 @@ export function useWebSocket(
   const wsRef = useRef<WebSocket | null>(null);
   const optionsRef = useRef(options);
   optionsRef.current = options;
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const intentionalCloseRef = useRef(false);
 
   useEffect(() => {
     if (!url) return;
 
-    setState("connecting");
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsPort = process.env.NEXT_PUBLIC_WS_PORT;
-    const host = wsPort
-      ? `${window.location.hostname}:${wsPort}`
-      : window.location.host;
-    const wsUrl = `${protocol}//${host}${url}`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    intentionalCloseRef.current = false;
 
-    ws.binaryType = "arraybuffer";
+    function connect() {
+      setState("connecting");
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsPort = process.env.NEXT_PUBLIC_WS_PORT;
+      const host = wsPort
+        ? `${window.location.hostname}:${wsPort}`
+        : window.location.host;
+      const wsUrl = `${protocol}//${host}${url}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    ws.onopen = () => {
-      setState("open");
-      optionsRef.current.onOpen?.();
-    };
+      ws.binaryType = "arraybuffer";
 
-    ws.onmessage = (event) => {
-      optionsRef.current.onMessage?.(event);
-    };
+      ws.onopen = () => {
+        reconnectAttemptRef.current = 0;
+        setState("open");
+        optionsRef.current.onOpen?.();
+      };
 
-    ws.onclose = (event) => {
-      setState("closed");
-      optionsRef.current.onClose?.(event);
-    };
+      ws.onmessage = (event) => {
+        optionsRef.current.onMessage?.(event);
+      };
 
-    ws.onerror = () => {
-      setState("error");
-    };
+      ws.onclose = (event) => {
+        setState("closed");
+        optionsRef.current.onClose?.(event);
+
+        // Don't reconnect for intentional closes or permanent error codes
+        if (intentionalCloseRef.current) return;
+        if (PERMANENT_CLOSE_CODES.has(event.code)) return;
+
+        // Exponential backoff reconnect
+        const attempt = reconnectAttemptRef.current++;
+        const delay = Math.min(
+          BASE_RECONNECT_DELAY * Math.pow(2, attempt),
+          MAX_RECONNECT_DELAY
+        );
+        reconnectTimerRef.current = setTimeout(connect, delay);
+      };
+
+      ws.onerror = () => {
+        // onclose will fire after onerror, which handles reconnection
+      };
+    }
+
+    connect();
 
     return () => {
-      ws.close();
+      intentionalCloseRef.current = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      wsRef.current?.close();
       wsRef.current = null;
     };
   }, [url]);
@@ -65,6 +103,7 @@ export function useWebSocket(
   }, []);
 
   const close = useCallback(() => {
+    intentionalCloseRef.current = true;
     wsRef.current?.close();
   }, []);
 

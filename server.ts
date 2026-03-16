@@ -6,6 +6,7 @@ import {
   removeParticipant,
 } from "./src/lib/rooms";
 import { generateRoomId } from "./src/lib/room";
+import { allowMessage } from "./src/lib/rate-limit";
 import type { ServerWebSocket } from "bun";
 import { join } from "path";
 
@@ -102,9 +103,20 @@ const server = Bun.serve<WSData>({
         return;
       }
 
+      // Detect duplicate tabs: close any existing connection with the same token
+      if (token) {
+        for (const [, p] of room.participants) {
+          if (p.isCreator && token === room.creatorToken && p.ws !== ws) {
+            try { p.ws.close(4008, "Duplicate tab"); } catch { /* ignore */ }
+          }
+        }
+      }
+
       const participant = addParticipant(roomId, ws, token);
       if (!participant) {
-        ws.close(4004, "Room not found");
+        // Room full or closed
+        safeSend(ws, JSON.stringify({ type: "room_full" }));
+        ws.close(4003, "Room full");
         return;
       }
 
@@ -144,6 +156,12 @@ const server = Bun.serve<WSData>({
       if (!room) return;
 
       if (typeof data !== "string") return;
+
+      // Rate limit
+      if (!allowMessage(ws)) {
+        ws.close(4029, "Rate limited");
+        return;
+      }
 
       try {
         const msg = JSON.parse(data);
