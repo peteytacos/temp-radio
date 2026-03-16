@@ -10,7 +10,8 @@ export function useRoom(
   token: string | undefined,
   audioCtx: AudioContext | null,
   micStream: MediaStream | null,
-  ready: boolean = true
+  ready: boolean = true,
+  rtcConfig: RTCConfiguration | null = null
 ) {
   const [myId, setMyId] = useState<number | null>(null);
   const [myColor, setMyColor] = useState("#265327");
@@ -127,7 +128,8 @@ export function useRoom(
   const webrtc = useWebRTC(
     audioCtx,
     micStream,
-    sendString
+    sendString,
+    rtcConfig
   );
 
   return {

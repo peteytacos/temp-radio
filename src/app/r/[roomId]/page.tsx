@@ -26,6 +26,7 @@ export default function RoomPage() {
   const [copied, setCopied] = useState(false);
   const [radioEnabled, setRadioEnabled] = useState(true);
   const [micDenied, setMicDenied] = useState(false);
+  const [rtcConfig, setRtcConfig] = useState<RTCConfiguration | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
 
@@ -42,26 +43,37 @@ export default function RoomPage() {
     audioCtxRef.current = ctx;
     if (ctx.state === "suspended") ctx.resume();
 
-    // Request mic permission during activation (user gesture)
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      // Start muted — PTT enables the track
-      stream.getAudioTracks().forEach((t) => { t.enabled = false; });
-      micStreamRef.current = stream;
-    } catch {
+    // Fetch TURN credentials and request mic in parallel
+    const [, micResult] = await Promise.allSettled([
+      fetch(
+          `${process.env.NEXT_PUBLIC_WS_PORT ? `http://${window.location.hostname}:${process.env.NEXT_PUBLIC_WS_PORT}` : ""}/api/turn-credentials`
+        )
+        .then((r) => r.json())
+        .then((creds) => setRtcConfig(creds))
+        .catch(() => {}),
+      navigator.mediaDevices
+        .getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        })
+        .then((stream) => {
+          // Start muted — PTT enables the track
+          stream.getAudioTracks().forEach((t) => { t.enabled = false; });
+          micStreamRef.current = stream;
+        }),
+    ]);
+
+    if (micResult.status === "rejected") {
       setMicDenied(true);
     }
 
     setActivated(true);
   }, []);
 
-  const room = useRoom(roomId, tokenReady ? token : undefined, audioCtxRef.current, micStreamRef.current, activated && tokenReady);
+  const room = useRoom(roomId, tokenReady ? token : undefined, audioCtxRef.current, micStreamRef.current, activated && tokenReady, rtcConfig);
   const ptt = usePTT(audioCtxRef.current, room.send, room.isConnected, micStreamRef.current);
 
   // Prevent screen from sleeping while radio is active

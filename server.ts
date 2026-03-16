@@ -9,6 +9,7 @@ import {
 import { generateRoomId } from "./src/lib/room";
 import { allowMessage } from "./src/lib/rate-limit";
 import { allowRoomCreation } from "./src/lib/api-rate-limit";
+import { getTurnCredentials } from "./src/lib/turn";
 import { validateMessage } from "./src/lib/validate-message";
 import type { ServerWebSocket } from "bun";
 import { join } from "path";
@@ -74,6 +75,12 @@ const server = Bun.serve<WSData>({
       const token = nanoid(16);
       createRoom(id, token);
       return Response.json({ roomId: id, url: `/r/${id}`, token });
+    }
+
+    // --- API: get TURN credentials ---
+    if (url.pathname === "/api/turn-credentials" && req.method === "GET") {
+      const creds = await getTurnCredentials();
+      return Response.json(creds);
     }
 
     // --- Static file serving ---

@@ -11,6 +11,7 @@ import {
 import { generateRoomId } from "./src/lib/room";
 import { allowMessage } from "./src/lib/rate-limit";
 import { allowRoomCreation } from "./src/lib/api-rate-limit";
+import { getTurnCredentials } from "./src/lib/turn";
 import { validateMessage } from "./src/lib/validate-message";
 import type { ServerWebSocket } from "bun";
 
@@ -49,7 +50,7 @@ const PORT = parseInt(process.env.WS_PORT || "3001");
 const server = Bun.serve<WSData>({
   port: PORT,
 
-  fetch(req, server) {
+  async fetch(req, server) {
     const url = new URL(req.url);
 
     // CORS for dev (Next.js on different port)
@@ -91,6 +92,12 @@ const server = Bun.serve<WSData>({
         { roomId: id, url: `/r/${id}`, token },
         { headers: corsHeaders }
       );
+    }
+
+    // API: get TURN credentials
+    if (url.pathname === "/api/turn-credentials" && req.method === "GET") {
+      const creds = await getTurnCredentials();
+      return Response.json(creds, { headers: corsHeaders });
     }
 
     return new Response("Not found", { status: 404 });

@@ -3,28 +3,12 @@
 import { useRef, useCallback, useEffect, useState } from "react";
 import { FFT_SIZE } from "@/lib/audio-config";
 
-function buildRtcConfig(): RTCConfiguration {
-  const iceServers: RTCIceServer[] = [
+const STUN_ONLY_CONFIG: RTCConfiguration = {
+  iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
-  ];
-
-  const turnUrl = process.env.NEXT_PUBLIC_TURN_URL;
-  const turnUser = process.env.NEXT_PUBLIC_TURN_USERNAME;
-  const turnCred = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
-
-  if (turnUrl) {
-    iceServers.push({
-      urls: turnUrl,
-      username: turnUser ?? "",
-      credential: turnCred ?? "",
-    });
-  }
-
-  return { iceServers };
-}
-
-const RTC_CONFIG = buildRtcConfig();
+  ],
+};
 
 /** How long to wait before attempting ICE restart after failure */
 const ICE_RESTART_DELAY = 2_000;
@@ -48,7 +32,8 @@ interface PeerState {
 export function useWebRTC(
   audioCtx: AudioContext | null,
   micStream: MediaStream | null,
-  send: (data: string) => void
+  send: (data: string) => void,
+  rtcConfig: RTCConfiguration | null = null
 ) {
   const peersRef = useRef<Map<number, PeerState>>(new Map());
   const peerVersionRef = useRef(0);
@@ -58,6 +43,8 @@ export function useWebRTC(
   micStreamRef.current = micStream;
   const sendRef = useRef(send);
   sendRef.current = send;
+  const rtcConfigRef = useRef(rtcConfig ?? STUN_ONLY_CONFIG);
+  rtcConfigRef.current = rtcConfig ?? STUN_ONLY_CONFIG;
 
   const [remoteAnalysers, setRemoteAnalysers] = useState<
     Map<number, AnalyserNode>
@@ -165,7 +152,7 @@ export function useWebRTC(
   const connectToPeer = useCallback(async (remoteId: number) => {
     destroyPeer(remoteId);
     const version = ++peerVersionRef.current;
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const pc = new RTCPeerConnection(rtcConfigRef.current);
     const peerState: PeerState = {
       pc, analyser: null, sourceNode: null, clonedStream: null,
       audio: null, pendingVolume: 0, version, iceRestartTimer: null,
@@ -236,7 +223,7 @@ export function useWebRTC(
   const handleOffer = useCallback(async (fromId: number, sdp: string) => {
     destroyPeer(fromId);
     const version = ++peerVersionRef.current;
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const pc = new RTCPeerConnection(rtcConfigRef.current);
     const peerState: PeerState = {
       pc, analyser: null, sourceNode: null, clonedStream: null,
       audio: null, pendingVolume: 0, version, iceRestartTimer: null,
