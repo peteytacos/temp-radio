@@ -4,8 +4,13 @@ import {
   getRoom,
   addParticipant,
   removeParticipant,
+  closeRoom,
 } from "./src/lib/rooms";
 import { generateRoomId } from "./src/lib/room";
+import { allowMessage } from "./src/lib/rate-limit";
+import { allowRoomCreation } from "./src/lib/api-rate-limit";
+import { getTurnCredentials } from "./src/lib/turn";
+import { validateMessage } from "./src/lib/validate-message";
 import type { ServerWebSocket } from "bun";
 import { join } from "path";
 
@@ -18,14 +23,20 @@ interface WSData {
 const STATIC_DIR = join(import.meta.dir, "out");
 const PORT = parseInt(process.env.PORT || "3000");
 
+function safeSend(ws: { readyState: number; send: (data: string) => void }, payload: string) {
+  try {
+    if (ws.readyState === 1) ws.send(payload);
+  } catch {
+    // Socket closed between check and send — ignore
+  }
+}
+
 function broadcastToRoom(roomId: string, msg: object, excludeId?: number) {
   const room = getRoom(roomId);
   if (!room) return;
   const payload = JSON.stringify(msg);
   for (const [id, p] of room.participants) {
-    if (id !== excludeId && p.ws.readyState === 1) {
-      p.ws.send(payload);
-    }
+    if (id !== excludeId) safeSend(p.ws, payload);
   }
 }
 
@@ -33,9 +44,7 @@ function sendToParticipant(roomId: string, targetId: number, msg: object) {
   const room = getRoom(roomId);
   if (!room) return;
   const participant = room.participants.get(targetId);
-  if (participant && participant.ws.readyState === 1) {
-    participant.ws.send(JSON.stringify(msg));
-  }
+  if (participant) safeSend(participant.ws, JSON.stringify(msg));
 }
 
 const server = Bun.serve<WSData>({
@@ -56,10 +65,22 @@ const server = Bun.serve<WSData>({
 
     // --- API: create room ---
     if (url.pathname === "/api/create-room" && req.method === "POST") {
+      const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+        || server.requestIP(req)?.address
+        || "unknown";
+      if (!allowRoomCreation(ip)) {
+        return Response.json({ error: "Too many rooms created" }, { status: 429 });
+      }
       const id = generateRoomId();
       const token = nanoid(16);
       createRoom(id, token);
       return Response.json({ roomId: id, url: `/r/${id}`, token });
+    }
+
+    // --- API: get TURN credentials ---
+    if (url.pathname === "/api/turn-credentials" && req.method === "GET") {
+      const creds = await getTurnCredentials();
+      return Response.json(creds);
     }
 
     // --- Static file serving ---
@@ -98,9 +119,20 @@ const server = Bun.serve<WSData>({
         return;
       }
 
+      // Detect duplicate tabs: close any existing connection with the same token
+      if (token) {
+        for (const [, p] of room.participants) {
+          if (p.isCreator && token === room.creatorToken && p.ws !== ws) {
+            try { p.ws.close(4008, "Duplicate tab"); } catch { /* ignore */ }
+          }
+        }
+      }
+
       const participant = addParticipant(roomId, ws, token);
       if (!participant) {
-        ws.close(4004, "Room not found");
+        // Room full or closed
+        safeSend(ws, JSON.stringify({ type: "room_full" }));
+        ws.close(4003, "Room full");
         return;
       }
 
@@ -141,47 +173,40 @@ const server = Bun.serve<WSData>({
 
       if (typeof data !== "string") return;
 
-      try {
-        const msg = JSON.parse(data);
-        switch (msg.type) {
-          case "speaking_start":
-            broadcastToRoom(
-              roomId,
-              { type: "speaking_start", id: participantId },
-              participantId
-            );
-            break;
-          case "speaking_stop":
-            broadcastToRoom(
-              roomId,
-              { type: "speaking_stop", id: participantId },
-              participantId
-            );
-            break;
-          case "rtc_offer":
-            sendToParticipant(roomId, msg.targetId, {
-              type: "rtc_offer",
-              fromId: participantId,
-              sdp: msg.sdp,
-            });
-            break;
-          case "rtc_answer":
-            sendToParticipant(roomId, msg.targetId, {
-              type: "rtc_answer",
-              fromId: participantId,
-              sdp: msg.sdp,
-            });
-            break;
-          case "rtc_ice":
-            sendToParticipant(roomId, msg.targetId, {
-              type: "rtc_ice",
-              fromId: participantId,
-              candidate: msg.candidate,
-            });
-            break;
-        }
-      } catch {
-        // Invalid JSON
+      // Rate limit
+      if (!allowMessage(ws)) {
+        ws.close(4029, "Rate limited");
+        return;
+      }
+
+      const participantIds = new Set(room.participants.keys());
+      const msg = validateMessage(data, participantIds, participantId);
+      if (!msg) return;
+
+      switch (msg.type) {
+        case "speaking_start":
+        case "speaking_stop":
+          broadcastToRoom(
+            roomId,
+            { type: msg.type, id: participantId },
+            participantId
+          );
+          break;
+        case "rtc_offer":
+        case "rtc_answer":
+          sendToParticipant(roomId, msg.targetId, {
+            type: msg.type,
+            fromId: participantId,
+            sdp: msg.sdp,
+          });
+          break;
+        case "rtc_ice":
+          sendToParticipant(roomId, msg.targetId, {
+            type: "rtc_ice",
+            fromId: participantId,
+            candidate: msg.candidate,
+          });
+          break;
       }
     },
 
@@ -189,12 +214,16 @@ const server = Bun.serve<WSData>({
       const { roomId, participantId } = ws.data;
       if (participantId === undefined) return;
 
-      const { count } = removeParticipant(roomId, participantId);
-      broadcastToRoom(roomId, {
-        type: "participant_left",
-        id: participantId,
-        count,
-      });
+      const { wasCreator, count } = removeParticipant(roomId, participantId);
+      if (wasCreator) {
+        closeRoom(roomId);
+      } else {
+        broadcastToRoom(roomId, {
+          type: "participant_left",
+          id: participantId,
+          count,
+        });
+      }
     },
   },
 });

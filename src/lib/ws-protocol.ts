@@ -6,6 +6,7 @@ export type ServerMessage =
   | { type: "speaking_start"; id: number }
   | { type: "speaking_stop"; id: number }
   | { type: "room_closed" }
+  | { type: "room_full" }
   | { type: "rtc_offer"; fromId: number; sdp: string }
   | { type: "rtc_answer"; fromId: number; sdp: string }
   | { type: "rtc_ice"; fromId: number; candidate: RTCIceCandidateInit };

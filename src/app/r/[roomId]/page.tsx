@@ -8,6 +8,7 @@ import WaveformCanvas, {
 } from "@/components/WaveformCanvas";
 import { useRoom } from "@/hooks/useRoom";
 import { usePTT } from "@/hooks/usePTT";
+import { useWakeLock } from "@/hooks/useWakeLock";
 
 export default function RoomPage() {
   const router = useRouter();
@@ -25,6 +26,7 @@ export default function RoomPage() {
   const [copied, setCopied] = useState(false);
   const [radioEnabled, setRadioEnabled] = useState(true);
   const [micDenied, setMicDenied] = useState(false);
+  const [rtcConfig, setRtcConfig] = useState<RTCConfiguration | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
 
@@ -41,23 +43,41 @@ export default function RoomPage() {
     audioCtxRef.current = ctx;
     if (ctx.state === "suspended") ctx.resume();
 
-    // Request mic permission during activation (user gesture)
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
-      // Start muted — PTT enables the track
-      stream.getAudioTracks().forEach((t) => { t.enabled = false; });
-      micStreamRef.current = stream;
-    } catch {
+    // Fetch TURN credentials and request mic in parallel
+    const [, micResult] = await Promise.allSettled([
+      fetch(
+          `${process.env.NEXT_PUBLIC_WS_PORT ? `http://${window.location.hostname}:${process.env.NEXT_PUBLIC_WS_PORT}` : ""}/api/turn-credentials`
+        )
+        .then((r) => r.json())
+        .then((creds) => setRtcConfig(creds))
+        .catch(() => {}),
+      navigator.mediaDevices
+        .getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        })
+        .then((stream) => {
+          // Start muted — PTT enables the track
+          stream.getAudioTracks().forEach((t) => { t.enabled = false; });
+          micStreamRef.current = stream;
+        }),
+    ]);
+
+    if (micResult.status === "rejected") {
       setMicDenied(true);
     }
 
     setActivated(true);
   }, []);
 
-  const room = useRoom(roomId, tokenReady ? token : undefined, audioCtxRef.current, micStreamRef.current, activated && tokenReady);
+  const room = useRoom(roomId, tokenReady ? token : undefined, audioCtxRef.current, micStreamRef.current, activated && tokenReady, rtcConfig);
   const ptt = usePTT(audioCtxRef.current, room.send, room.isConnected, micStreamRef.current);
+
+  // Prevent screen from sleeping while radio is active
+  useWakeLock(activated && radioEnabled);
 
   // Build waveform sources for canvas
   const waveformSources = useMemo(() => {
@@ -130,21 +150,29 @@ export default function RoomPage() {
   const toggleRadio = useCallback(() => {
     setRadioEnabled((prev) => {
       if (prev) {
+        // Stop any active PTT before killing the mic
+        ptt.stopPTT();
         // Turning off — stop mic tracks to remove Dynamic Island indicator
         micStreamRef.current?.getTracks().forEach((t) => t.stop());
         micStreamRef.current = null;
       }
       return !prev;
     });
-  }, []);
+  }, [ptt]);
   const noopPTT = useCallback(() => {}, []);
 
   // Stop mic when page is hidden (app backgrounded)
+  const stopPTTRef = useRef(ptt.stopPTT);
+  stopPTTRef.current = ptt.stopPTT;
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.hidden && micStreamRef.current) {
-        micStreamRef.current.getTracks().forEach((t) => t.stop());
-        micStreamRef.current = null;
+      if (document.hidden) {
+        // Send speaking_stop before killing tracks so remote peers aren't stuck
+        stopPTTRef.current();
+        if (micStreamRef.current) {
+          micStreamRef.current.getTracks().forEach((t) => t.stop());
+          micStreamRef.current = null;
+        }
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
@@ -190,6 +218,62 @@ export default function RoomPage() {
             >
               Hold the yellow button to talk
             </div>
+          </div>
+        </RadioShell>
+      </div>
+    );
+  }
+
+  // ===== ROOM FULL =====
+  if (room.roomFull) {
+    return (
+      <div className="min-h-screen bg-[#0a0a06] flex items-center justify-center">
+        <RadioShell
+          roomId={roomId}
+          isConnected={false}
+          isEnabled={false}
+          isSpeaking={false}
+          participantCount={0}
+          roomClosed={false}
+          onPTTStart={noopPTT}
+          onPTTEnd={noopPTT}
+        >
+          <div className="flex-1 flex flex-col items-center justify-center">
+            <div
+              className="font-bold tracking-[0.2em] uppercase"
+              style={{
+                color: "#265327",
+                fontFamily: "var(--font-mono)",
+                fontSize: "clamp(10px, 2.5vw, 16px)",
+              }}
+            >
+              STATION FULL
+            </div>
+            <div
+              className="mt-2 tracking-[0.1em] uppercase"
+              style={{
+                color: "rgba(38, 83, 39, 0.5)",
+                fontFamily: "var(--font-mono)",
+                fontSize: "clamp(7px, 1.6vw, 10px)",
+              }}
+            >
+              Max participants reached
+            </div>
+          </div>
+          <div className="flex gap-1.5 mt-[2%]">
+            <button
+              onClick={handleNewRadio}
+              className="px-2 py-1 rounded transition-colors"
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: "clamp(6px, 1.4vw, 9px)",
+                color: "#265327",
+                backgroundColor: "rgba(38, 83, 39, 0.1)",
+                border: "1px solid rgba(38, 83, 39, 0.2)",
+              }}
+            >
+              NEW RADIO
+            </button>
           </div>
         </RadioShell>
       </div>
@@ -328,6 +412,20 @@ export default function RoomPage() {
             }}
           >
             MIC BLOCKED — ENABLE IN BROWSER SETTINGS
+          </div>
+        )}
+
+        {/* Relay warning — peers failing without TURN */}
+        {room.relayWarning && (
+          <div
+            className="text-center mt-[2%] tracking-[0.05em] uppercase"
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "clamp(6px, 1.4vw, 8px)",
+              color: "#c53030",
+            }}
+          >
+            CONNECTION FAILED — RELAY SERVICE UNAVAILABLE
           </div>
         )}
 

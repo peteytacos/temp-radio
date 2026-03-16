@@ -10,7 +10,8 @@ export function useRoom(
   token: string | undefined,
   audioCtx: AudioContext | null,
   micStream: MediaStream | null,
-  ready: boolean = true
+  ready: boolean = true,
+  rtcConfig: RTCConfiguration | null = null
 ) {
   const [myId, setMyId] = useState<number | null>(null);
   const [myColor, setMyColor] = useState("#265327");
@@ -23,8 +24,9 @@ export function useRoom(
     new Set()
   );
   const [roomClosed, setRoomClosed] = useState(false);
+  const [roomFull, setRoomFull] = useState(false);
 
-  const wsUrl = !ready || roomClosed
+  const wsUrl = !ready || roomClosed || roomFull
     ? null
     : `/ws/${roomId}${token ? `?token=${token}` : ""}`;
 
@@ -42,6 +44,15 @@ export function useRoom(
             new Map(msg.participants.map((p) => [p.id, p.color]))
           );
           setParticipantCount(msg.participants.length);
+          // Destroy any stale peers from a previous connection, then
+          // initiate WebRTC to every existing participant in the room.
+          // This handles both first join and WS reconnection scenarios.
+          webrtc.destroyAllPeers();
+          for (const p of msg.participants) {
+            if (p.id !== msg.id) {
+              webrtc.connectToPeer(p.id);
+            }
+          }
           break;
 
         case "participant_joined":
@@ -96,6 +107,10 @@ export function useRoom(
         case "room_closed":
           setRoomClosed(true);
           break;
+
+        case "room_full":
+          setRoomFull(true);
+          break;
       }
     },
     onClose: (event) => {
@@ -113,7 +128,8 @@ export function useRoom(
   const webrtc = useWebRTC(
     audioCtx,
     micStream,
-    sendString
+    sendString,
+    rtcConfig
   );
 
   return {
@@ -125,6 +141,8 @@ export function useRoom(
     activeSpeakers,
     speakerAnalysers: webrtc.remoteAnalysers,
     roomClosed,
+    roomFull,
+    relayWarning: webrtc.relayWarning,
     isConnected: state === "open",
     send: sendString,
   };

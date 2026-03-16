@@ -7,7 +7,9 @@
     "dev:next": "NEXT_PUBLIC_WS_PORT=3001 next dev",
     "dev:ws": "bun ws-server.ts",
     "build": "next build",
-    "start": "bun server.ts"
+    "start": "bun server.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "nanoid": "^5.1.6",
@@ -22,7 +24,8 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.0"
   },
   "trustedDependencies": [
     "sharp",

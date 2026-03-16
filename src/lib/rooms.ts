@@ -1,5 +1,7 @@
 import { getColor } from "./colors";
 
+export const MAX_PARTICIPANTS_PER_ROOM = 16;
+
 export interface Participant {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ws: any;
@@ -45,6 +47,8 @@ export function addParticipant(
   const room = rooms.get(roomId);
   if (!room || room.closed) return null;
 
+  if (room.participants.size >= MAX_PARTICIPANTS_PER_ROOM) return null;
+
   const id = room.nextParticipantId++;
   const color = getColor(id);
   const isCreator = !!token && token === room.creatorToken;
@@ -72,10 +76,15 @@ export function closeRoom(id: string) {
   const room = rooms.get(id);
   if (room) {
     room.closed = true;
+    const payload = JSON.stringify({ type: "room_closed" });
     for (const [, p] of room.participants) {
-      if (p.ws.readyState === 1) {
-        p.ws.send(JSON.stringify({ type: "room_closed" }));
-        p.ws.close(4002, "Room closed");
+      try {
+        if (p.ws.readyState === 1) {
+          p.ws.send(payload);
+          p.ws.close(4002, "Room closed");
+        }
+      } catch {
+        // Socket already closed — ignore
       }
     }
     rooms.delete(id);

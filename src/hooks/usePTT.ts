@@ -13,6 +13,9 @@ export function usePTT(
   const analyserRef = useRef<AnalyserNode | null>(null);
   const squelchBufferRef = useRef<AudioBuffer | null>(null);
   const isSpeakingRef = useRef(false);
+  // Track cloned stream resources for cleanup
+  const cloneRef = useRef<MediaStream | null>(null);
+  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
 
   // Pre-decode squelch sound into AudioBuffer for instant playback
   useEffect(() => {
@@ -38,7 +41,29 @@ export function usePTT(
     analyser.fftSize = FFT_SIZE;
     source.connect(analyser);
     analyserRef.current = analyser;
+    cloneRef.current = clone;
+    sourceNodeRef.current = source;
+
+    return () => {
+      source.disconnect();
+      clone.getTracks().forEach((t) => t.stop());
+      analyserRef.current = null;
+      cloneRef.current = null;
+      sourceNodeRef.current = null;
+    };
   }, [audioCtx, micStream]);
+
+  // Recover AudioContext from interruptions (e.g. phone calls on mobile)
+  useEffect(() => {
+    if (!audioCtx) return;
+    const handleStateChange = () => {
+      if (audioCtx.state === "interrupted" || audioCtx.state === "suspended") {
+        audioCtx.resume().catch(() => {});
+      }
+    };
+    audioCtx.addEventListener("statechange", handleStateChange);
+    return () => audioCtx.removeEventListener("statechange", handleStateChange);
+  }, [audioCtx]);
 
   const playSquelch = useCallback(() => {
     if (!squelchBufferRef.current || !audioCtx) return;
