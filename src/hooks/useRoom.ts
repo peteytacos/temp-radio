@@ -60,7 +60,10 @@ export function useRoom(
             new Map(prev).set(msg.id, msg.color)
           );
           setParticipantCount(msg.count);
-          webrtc.connectToPeer(msg.id);
+          // Don't initiate here — the joining peer initiates from
+          // its welcome handler. Initiating from both sides causes
+          // signaling glare where both offers cross and both answers
+          // arrive for already-destroyed peer connections.
           break;
 
         case "participant_left":
