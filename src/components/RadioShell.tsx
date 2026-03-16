@@ -174,6 +174,19 @@ export default function RadioShell({
           >
             {diagLine}
           </span>
+          {diagnostics?.lastError && (
+            <div
+              className="tracking-[0.08em]"
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: "clamp(4px, 1vw, 7px)",
+                color: "#c53030",
+                marginTop: "2px",
+              }}
+            >
+              ERR: {diagnostics.lastError}
+            </div>
+          )}
         </div>
       )}
 

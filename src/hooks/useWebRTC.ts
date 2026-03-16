@@ -16,6 +16,8 @@ export interface ConnectionDiagnostics {
   iceState: string | null;
   /** Number of times connectToPeer was called */
   connectAttempts: number;
+  /** Last error from connectToPeer/handleOffer */
+  lastError: string | null;
 }
 
 const STATS_POLL_INTERVAL = 3_000;
@@ -55,6 +57,7 @@ export function useWebRTC(
   const peersRef = useRef<Map<number, PeerState>>(new Map());
   const peerVersionRef = useRef(0);
   const connectAttemptsRef = useRef(0);
+  const lastErrorRef = useRef<string | null>(null);
   const audioCtxRef = useRef(audioCtx);
   audioCtxRef.current = audioCtx;
   const micStreamRef = useRef(micStream);
@@ -190,19 +193,26 @@ export function useWebRTC(
     try {
       const offer = await pc.createOffer();
       const current = peersRef.current.get(remoteId);
-      if (!current || current.version !== version) return;
+      if (!current || current.version !== version) {
+        lastErrorRef.current = "version mismatch after createOffer";
+        return;
+      }
 
       await pc.setLocalDescription(offer);
       const current2 = peersRef.current.get(remoteId);
-      if (!current2 || current2.version !== version) return;
+      if (!current2 || current2.version !== version) {
+        lastErrorRef.current = "version mismatch after setLocal";
+        return;
+      }
 
       sendRef.current(JSON.stringify({
         type: "rtc_offer",
         targetId: remoteId,
         sdp: pc.localDescription!.sdp,
       }));
-    } catch {
-      // Connection was closed or replaced — ignore
+      lastErrorRef.current = null;
+    } catch (err) {
+      lastErrorRef.current = String(err).slice(0, 60);
     }
   }, [destroyPeer, setupIce, setupRemoteAudio]);
 
@@ -350,13 +360,14 @@ export function useWebRTC(
     totalPeers: 0,
     iceState: null,
     connectAttempts: 0,
+    lastError: null,
   });
 
   useEffect(() => {
     const poll = async () => {
       const peers = peersRef.current;
       if (peers.size === 0) {
-        setDiagnostics({ connectionType: "unknown", rttMs: null, connectedPeers: 0, totalPeers: 0, iceState: null, connectAttempts: connectAttemptsRef.current });
+        setDiagnostics({ connectionType: "unknown", rttMs: null, connectedPeers: 0, totalPeers: 0, iceState: null, connectAttempts: connectAttemptsRef.current, lastError: lastErrorRef.current });
         return;
       }
 
@@ -402,6 +413,7 @@ export function useWebRTC(
         totalPeers: peers.size,
         iceState: firstIceState,
         connectAttempts: connectAttemptsRef.current,
+        lastError: lastErrorRef.current,
       });
     };
 
