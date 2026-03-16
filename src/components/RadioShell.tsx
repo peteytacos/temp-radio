@@ -30,7 +30,7 @@ function formatDiagLine(d: ConnectionDiagnostics, isConnected: boolean): string 
   const type = d.connectionType === "relay" ? "RLY" : d.connectionType === "direct" ? "P2P" : "---";
   const ping = d.rttMs !== null ? `${d.rttMs}ms` : "--";
   const peers = `${d.connectedPeers}/${d.totalPeers}`;
-  return `${type}  PING:${ping}  PEERS:${peers}`;
+  return `${type}  PING:${ping}  LINKS:${peers}`;
 }
 
 export default function RadioShell({
