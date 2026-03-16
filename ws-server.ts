@@ -11,7 +11,7 @@ import {
 import { generateRoomId } from "./src/lib/room";
 import { allowMessage } from "./src/lib/rate-limit";
 import { allowRoomCreation } from "./src/lib/api-rate-limit";
-import { getTurnCredentials } from "./src/lib/turn";
+import { getTurnCredentials, getTurnStatus } from "./src/lib/turn";
 import { validateMessage } from "./src/lib/validate-message";
 import type { ServerWebSocket } from "bun";
 
@@ -19,6 +19,7 @@ interface WSData {
   roomId: string;
   token?: string;
   participantId?: number;
+  lastPong: number;
 }
 
 function safeSend(ws: { readyState: number; send: (data: string) => void }, payload: string) {
@@ -47,6 +48,12 @@ function sendToParticipant(roomId: string, targetId: number, msg: object) {
 
 const PORT = parseInt(process.env.WS_PORT || "3001");
 
+const PING_INTERVAL = 15_000;
+const PONG_TIMEOUT = 30_000;
+
+/** Track all open WebSockets for heartbeat */
+const allSockets = new Set<ServerWebSocket<WSData>>();
+
 const server = Bun.serve<WSData>({
   port: PORT,
 
@@ -69,7 +76,7 @@ const server = Bun.serve<WSData>({
     if (wsMatch) {
       const roomId = wsMatch[1];
       const token = url.searchParams.get("token") || undefined;
-      const ok = server.upgrade(req, { data: { roomId, token } });
+      const ok = server.upgrade(req, { data: { roomId, token, lastPong: Date.now() } });
       if (ok) return undefined;
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
@@ -100,14 +107,23 @@ const server = Bun.serve<WSData>({
       return Response.json(creds, { headers: corsHeaders });
     }
 
+    // API: TURN diagnostic status
+    if (url.pathname === "/api/turn-status" && req.method === "GET") {
+      return Response.json(getTurnStatus(), { headers: corsHeaders });
+    }
+
     return new Response("Not found", { status: 404 });
   },
 
   websocket: {
     open(ws: ServerWebSocket<WSData>) {
+      ws.data.lastPong = Date.now();
+      allSockets.add(ws);
+
       const { roomId, token } = ws.data;
       const room = getRoom(roomId);
       if (!room || room.closed) {
+        allSockets.delete(ws);
         ws.close(4004, "Room not found");
         return;
       }
@@ -203,7 +219,12 @@ const server = Bun.serve<WSData>({
       }
     },
 
+    pong(ws: ServerWebSocket<WSData>) {
+      ws.data.lastPong = Date.now();
+    },
+
     close(ws: ServerWebSocket<WSData>) {
+      allSockets.delete(ws);
       const { roomId, participantId } = ws.data;
       if (participantId === undefined) return;
 
@@ -221,5 +242,19 @@ const server = Bun.serve<WSData>({
     },
   },
 });
+
+// Heartbeat: ping all clients, evict dead connections
+setInterval(() => {
+  const now = Date.now();
+  for (const ws of allSockets) {
+    if (now - ws.data.lastPong > PONG_TIMEOUT) {
+      console.log(`[heartbeat] evicting dead connection (participant ${ws.data.participantId})`);
+      allSockets.delete(ws);
+      try { ws.close(4001, "Pong timeout"); } catch { /* already closed */ }
+      continue;
+    }
+    try { ws.ping(); } catch { /* ignore */ }
+  }
+}, PING_INTERVAL);
 
 console.log(`📻 WS server running on http://localhost:${server.port}`);

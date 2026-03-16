@@ -3,6 +3,19 @@
 import { useRef, useCallback, useEffect, useState } from "react";
 import { FFT_SIZE } from "@/lib/audio-config";
 
+export interface ConnectionDiagnostics {
+  /** "direct" (STUN/host) or "relay" (TURN) or "unknown" */
+  connectionType: "direct" | "relay" | "unknown";
+  /** Round-trip time in ms (average across peers), null if unavailable */
+  rttMs: number | null;
+  /** Number of peers with an active connection */
+  connectedPeers: number;
+  /** Total number of peers we're tracking */
+  totalPeers: number;
+}
+
+const STATS_POLL_INTERVAL = 3_000;
+
 const STUN_ONLY_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -323,8 +336,71 @@ export function useWebRTC(
   }) ?? false;
   const relayWarning = peersFailed && !hasTurn;
 
+  // Connection diagnostics via getStats() polling
+  const [diagnostics, setDiagnostics] = useState<ConnectionDiagnostics>({
+    connectionType: "unknown",
+    rttMs: null,
+    connectedPeers: 0,
+    totalPeers: 0,
+  });
+
+  useEffect(() => {
+    const poll = async () => {
+      const peers = peersRef.current;
+      if (peers.size === 0) {
+        setDiagnostics({ connectionType: "unknown", rttMs: null, connectedPeers: 0, totalPeers: 0 });
+        return;
+      }
+
+      let hasRelay = false;
+      let totalRtt = 0;
+      let rttCount = 0;
+      let connected = 0;
+
+      for (const [, state] of peers) {
+        if (state.pc.connectionState === "connected") connected++;
+
+        try {
+          const stats = await state.pc.getStats();
+          stats.forEach((report) => {
+            if (report.type === "candidate-pair" && report.state === "succeeded") {
+              // Check if relay candidate
+              if (report.remoteCandidateId) {
+                const remote = stats.get(report.remoteCandidateId);
+                if (remote?.candidateType === "relay") hasRelay = true;
+              }
+              if (report.localCandidateId) {
+                const local = stats.get(report.localCandidateId);
+                if (local?.candidateType === "relay") hasRelay = true;
+              }
+              // RTT
+              if (typeof report.currentRoundTripTime === "number") {
+                totalRtt += report.currentRoundTripTime * 1000;
+                rttCount++;
+              }
+            }
+          });
+        } catch {
+          // PC closed mid-poll
+        }
+      }
+
+      setDiagnostics({
+        connectionType: connected === 0 ? "unknown" : hasRelay ? "relay" : "direct",
+        rttMs: rttCount > 0 ? Math.round(totalRtt / rttCount) : null,
+        connectedPeers: connected,
+        totalPeers: peers.size,
+      });
+    };
+
+    poll();
+    const id = setInterval(poll, STATS_POLL_INTERVAL);
+    return () => clearInterval(id);
+  }, [remoteAnalysers]); // re-subscribe when peer set changes
+
   return {
     remoteAnalysers,
+    diagnostics,
     connectToPeer,
     handleOffer,
     handleAnswer,
