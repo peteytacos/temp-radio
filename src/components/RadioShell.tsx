@@ -95,6 +95,7 @@ export default function RadioShell({
               fontSize: "clamp(5px, 1vw, 7px)",
               color: "rgba(38, 83, 39, 0.5)",
               zIndex: 20,
+              userSelect: "none",
             }}
           >
             build:{process.env.NEXT_PUBLIC_BUILD_NUMBER}
