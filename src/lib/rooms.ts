@@ -72,10 +72,15 @@ export function closeRoom(id: string) {
   const room = rooms.get(id);
   if (room) {
     room.closed = true;
+    const payload = JSON.stringify({ type: "room_closed" });
     for (const [, p] of room.participants) {
-      if (p.ws.readyState === 1) {
-        p.ws.send(JSON.stringify({ type: "room_closed" }));
-        p.ws.close(4002, "Room closed");
+      try {
+        if (p.ws.readyState === 1) {
+          p.ws.send(payload);
+          p.ws.close(4002, "Room closed");
+        }
+      } catch {
+        // Socket already closed — ignore
       }
     }
     rooms.delete(id);

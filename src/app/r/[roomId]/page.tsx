@@ -130,21 +130,29 @@ export default function RoomPage() {
   const toggleRadio = useCallback(() => {
     setRadioEnabled((prev) => {
       if (prev) {
+        // Stop any active PTT before killing the mic
+        ptt.stopPTT();
         // Turning off — stop mic tracks to remove Dynamic Island indicator
         micStreamRef.current?.getTracks().forEach((t) => t.stop());
         micStreamRef.current = null;
       }
       return !prev;
     });
-  }, []);
+  }, [ptt]);
   const noopPTT = useCallback(() => {}, []);
 
   // Stop mic when page is hidden (app backgrounded)
+  const stopPTTRef = useRef(ptt.stopPTT);
+  stopPTTRef.current = ptt.stopPTT;
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.hidden && micStreamRef.current) {
-        micStreamRef.current.getTracks().forEach((t) => t.stop());
-        micStreamRef.current = null;
+      if (document.hidden) {
+        // Send speaking_stop before killing tracks so remote peers aren't stuck
+        stopPTTRef.current();
+        if (micStreamRef.current) {
+          micStreamRef.current.getTracks().forEach((t) => t.stop());
+          micStreamRef.current = null;
+        }
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);

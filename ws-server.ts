@@ -16,14 +16,20 @@ interface WSData {
   participantId?: number;
 }
 
+function safeSend(ws: { readyState: number; send: (data: string) => void }, payload: string) {
+  try {
+    if (ws.readyState === 1) ws.send(payload);
+  } catch {
+    // Socket closed between check and send — ignore
+  }
+}
+
 function broadcastToRoom(roomId: string, msg: object, excludeId?: number) {
   const room = getRoom(roomId);
   if (!room) return;
   const payload = JSON.stringify(msg);
   for (const [id, p] of room.participants) {
-    if (id !== excludeId && p.ws.readyState === 1) {
-      p.ws.send(payload);
-    }
+    if (id !== excludeId) safeSend(p.ws, payload);
   }
 }
 
@@ -31,9 +37,7 @@ function sendToParticipant(roomId: string, targetId: number, msg: object) {
   const room = getRoom(roomId);
   if (!room) return;
   const participant = room.participants.get(targetId);
-  if (participant && participant.ws.readyState === 1) {
-    participant.ws.send(JSON.stringify(msg));
-  }
+  if (participant) safeSend(participant.ws, JSON.stringify(msg));
 }
 
 const PORT = parseInt(process.env.WS_PORT || "3001");
