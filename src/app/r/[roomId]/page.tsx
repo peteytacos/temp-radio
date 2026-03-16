@@ -346,6 +346,7 @@ export default function RoomPage() {
         isSpeaking={ptt.isSpeaking}
         participantCount={room.participantCount}
         roomClosed={false}
+        diagnostics={room.diagnostics}
         onPTTStart={radioEnabled ? ptt.startPTT : noopPTT}
         onPTTEnd={radioEnabled ? ptt.stopPTT : noopPTT}
       >

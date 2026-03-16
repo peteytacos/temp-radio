@@ -1,5 +1,7 @@
 "use client";
 
+import type { ConnectionDiagnostics } from "@/hooks/useWebRTC";
+
 // Overlay positions derived from radio.jpg (1206×2622px)
 // To recalibrate: measure pixel coords, divide by image dimensions
 const IMG = { w: 1206, h: 2622 } as const;
@@ -16,10 +18,19 @@ interface Props {
   isSpeaking: boolean;
   participantCount: number;
   roomClosed: boolean;
+  diagnostics?: ConnectionDiagnostics;
   onActivate?: () => void;
   onPTTStart: () => void;
   onPTTEnd: () => void;
   children: React.ReactNode;
+}
+
+function formatDiagLine(d: ConnectionDiagnostics, isConnected: boolean): string {
+  if (!isConnected) return "NO LINK";
+  const type = d.connectionType === "relay" ? "RLY" : d.connectionType === "direct" ? "P2P" : "---";
+  const ping = d.rttMs !== null ? `${d.rttMs}ms` : "--";
+  const peers = `${d.connectedPeers}/${d.totalPeers}`;
+  return `${type}  PING:${ping}  LINKS:${peers}`;
 }
 
 export default function RadioShell({
@@ -29,11 +40,13 @@ export default function RadioShell({
   isSpeaking,
   participantCount,
   roomClosed,
+  diagnostics,
   onActivate,
   onPTTStart,
   onPTTEnd,
   children,
 }: Props) {
+  const diagLine = diagnostics ? formatDiagLine(diagnostics, isConnected) : null;
   return (
     <div className="w-full max-w-[480px] mx-auto relative select-none">
       <img
@@ -111,7 +124,7 @@ export default function RadioShell({
         />
       </div>
 
-      {/* ===== STATUS TEXT ===== */}
+      {/* ===== STATUS TEXT (row 1 — next to LED) ===== */}
       <div
         className="absolute"
         style={{
@@ -138,6 +151,29 @@ export default function RadioShell({
                 : "DISABLED"}
         </span>
       </div>
+
+      {/* ===== DIAGNOSTICS (right-aligned under green screen) ===== */}
+      {diagLine && (
+        <div
+          className="absolute"
+          style={{
+            top: pct(SCREEN.bottom + 45, IMG.h),
+            right: pct(IMG.w - SCREEN.right + 35, IMG.w),
+            textAlign: "right",
+          }}
+        >
+          <span
+            className="tracking-[0.12em] uppercase"
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "clamp(5px, 1.2vw, 8px)",
+              color: "rgba(212, 160, 23, 0.8)",
+            }}
+          >
+            {diagLine}
+          </span>
+        </div>
+      )}
 
       {/* ===== PTT BUTTON OVERLAY ===== */}
       <button

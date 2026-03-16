@@ -140,6 +140,7 @@ export function useRoom(
     participantCount,
     activeSpeakers,
     speakerAnalysers: webrtc.remoteAnalysers,
+    diagnostics: webrtc.diagnostics,
     roomClosed,
     roomFull,
     relayWarning: webrtc.relayWarning,
