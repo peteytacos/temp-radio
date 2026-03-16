@@ -12,6 +12,8 @@ export interface ConnectionDiagnostics {
   connectedPeers: number;
   /** Total number of peers we're tracking */
   totalPeers: number;
+  /** ICE connection state of the first peer (for diagnostics) */
+  iceState: string | null;
 }
 
 const STATS_POLL_INTERVAL = 3_000;
@@ -342,13 +344,14 @@ export function useWebRTC(
     rttMs: null,
     connectedPeers: 0,
     totalPeers: 0,
+    iceState: null,
   });
 
   useEffect(() => {
     const poll = async () => {
       const peers = peersRef.current;
       if (peers.size === 0) {
-        setDiagnostics({ connectionType: "unknown", rttMs: null, connectedPeers: 0, totalPeers: 0 });
+        setDiagnostics({ connectionType: "unknown", rttMs: null, connectedPeers: 0, totalPeers: 0, iceState: null });
         return;
       }
 
@@ -356,8 +359,10 @@ export function useWebRTC(
       let totalRtt = 0;
       let rttCount = 0;
       let connected = 0;
+      let firstIceState: string | null = null;
 
       for (const [, state] of peers) {
+        if (!firstIceState) firstIceState = state.pc.iceConnectionState;
         if (state.pc.connectionState === "connected") connected++;
 
         try {
@@ -390,6 +395,7 @@ export function useWebRTC(
         rttMs: rttCount > 0 ? Math.round(totalRtt / rttCount) : null,
         connectedPeers: connected,
         totalPeers: peers.size,
+        iceState: firstIceState,
       });
     };
 

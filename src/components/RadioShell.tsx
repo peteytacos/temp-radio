@@ -29,8 +29,9 @@ function formatDiagLine(d: ConnectionDiagnostics, isConnected: boolean): string 
   if (!isConnected) return "NO LINK";
   const type = d.connectionType === "relay" ? "RLY" : d.connectionType === "direct" ? "P2P" : "---";
   const ping = d.rttMs !== null ? `${d.rttMs}ms` : "--";
-  const peers = `${d.connectedPeers}/${d.totalPeers}`;
-  return `${type}  PING:${ping}  LINKS:${peers}`;
+  const links = `${d.connectedPeers}/${d.totalPeers}`;
+  const ice = d.iceState ? d.iceState.toUpperCase().slice(0, 4) : "--";
+  return `${type}  PING:${ping}  LINKS:${links}  ICE:${ice}`;
 }
 
 export default function RadioShell({

@@ -210,6 +210,7 @@ const server = Bun.serve<WSData>({
           break;
         case "rtc_offer":
         case "rtc_answer":
+          console.log(`[rtc] ${msg.type} from ${participantId} → ${msg.targetId} (room ${roomId})`);
           sendToParticipant(roomId, msg.targetId, {
             type: msg.type,
             fromId: participantId,
@@ -217,6 +218,7 @@ const server = Bun.serve<WSData>({
           });
           break;
         case "rtc_ice":
+          console.log(`[rtc] ice from ${participantId} → ${msg.targetId} (room ${roomId})`);
           sendToParticipant(roomId, msg.targetId, {
             type: "rtc_ice",
             fromId: participantId,
