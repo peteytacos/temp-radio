@@ -381,10 +381,11 @@ export default function RoomPage() {
           }}
         >
           <div
-            className="font-bold rounded-sm px-[3%] py-[1%]"
+            className="font-bold rounded-sm px-[3%] py-[1%] cursor-pointer"
             style={{ border: "1px solid rgba(38, 83, 39, 0.25)" }}
+            onClick={handleCopy}
           >
-            CH {roomId.toUpperCase()}
+            SQUELCHRADIO.COM/R/{roomId.toUpperCase()}
           </div>
           <div className="flex items-center gap-1">
             <svg
@@ -444,19 +445,6 @@ export default function RoomPage() {
             }}
           >
             NEW RADIO
-          </button>
-          <button
-            onClick={handleCopy}
-            className="px-2 py-1 rounded transition-colors"
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "clamp(6px, 1.4vw, 9px)",
-              color: "#265327",
-              backgroundColor: "rgba(38, 83, 39, 0.1)",
-              border: "1px solid rgba(38, 83, 39, 0.2)",
-            }}
-          >
-            {copied ? "COPIED!" : "COPY"}
           </button>
           <button
             onClick={handleShare}
