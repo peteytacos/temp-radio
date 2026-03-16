@@ -14,6 +14,8 @@ export interface ConnectionDiagnostics {
   totalPeers: number;
   /** ICE connection state of the first peer (for diagnostics) */
   iceState: string | null;
+  /** Number of times connectToPeer was called */
+  connectAttempts: number;
 }
 
 const STATS_POLL_INTERVAL = 3_000;
@@ -52,6 +54,7 @@ export function useWebRTC(
 ) {
   const peersRef = useRef<Map<number, PeerState>>(new Map());
   const peerVersionRef = useRef(0);
+  const connectAttemptsRef = useRef(0);
   const audioCtxRef = useRef(audioCtx);
   audioCtxRef.current = audioCtx;
   const micStreamRef = useRef(micStream);
@@ -166,6 +169,7 @@ export function useWebRTC(
   }, [cleanupPeerResources]);
 
   const connectToPeer = useCallback(async (remoteId: number) => {
+    connectAttemptsRef.current++;
     destroyPeer(remoteId);
     const version = ++peerVersionRef.current;
     const pc = new RTCPeerConnection(rtcConfigRef.current);
@@ -345,13 +349,14 @@ export function useWebRTC(
     connectedPeers: 0,
     totalPeers: 0,
     iceState: null,
+    connectAttempts: 0,
   });
 
   useEffect(() => {
     const poll = async () => {
       const peers = peersRef.current;
       if (peers.size === 0) {
-        setDiagnostics({ connectionType: "unknown", rttMs: null, connectedPeers: 0, totalPeers: 0, iceState: null });
+        setDiagnostics({ connectionType: "unknown", rttMs: null, connectedPeers: 0, totalPeers: 0, iceState: null, connectAttempts: connectAttemptsRef.current });
         return;
       }
 
@@ -396,6 +401,7 @@ export function useWebRTC(
         connectedPeers: connected,
         totalPeers: peers.size,
         iceState: firstIceState,
+        connectAttempts: connectAttemptsRef.current,
       });
     };
 

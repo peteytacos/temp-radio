@@ -31,7 +31,7 @@ function formatDiagLine(d: ConnectionDiagnostics, isConnected: boolean): string 
   const ping = d.rttMs !== null ? `${d.rttMs}ms` : "--";
   const links = `${d.connectedPeers}/${d.totalPeers}`;
   const ice = d.iceState ? d.iceState.toUpperCase().slice(0, 4) : "--";
-  return `${type}  PING:${ping}  LINKS:${links}  ICE:${ice}`;
+  return `${type}  PING:${ping}  L:${links}  ICE:${ice}  C:${d.connectAttempts}`;
 }
 
 export default function RadioShell({
