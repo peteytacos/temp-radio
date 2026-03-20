@@ -7,6 +7,7 @@ import type { ConnectionDiagnostics } from "@/hooks/useWebRTC";
 const IMG = { w: 1206, h: 2622 } as const;
 const SCREEN = { top: 800, left: 245, right: 945, bottom: 1300 } as const;
 const BUTTON = { top: 1625, left: 660, right: 940, bottom: 1945 } as const;
+const MIC_LOCK = { top: 1970, left: 700, right: 900 } as const;
 const LED = { x: 285, y: 1400 } as const;
 
 const pct = (v: number, total: number) => `${(v / total) * 100}%`;
@@ -16,12 +17,14 @@ interface Props {
   isConnected: boolean;
   isEnabled: boolean;
   isSpeaking: boolean;
+  micLocked: boolean;
   participantCount: number;
   roomClosed: boolean;
   diagnostics?: ConnectionDiagnostics;
   onActivate?: () => void;
   onPTTStart: () => void;
   onPTTEnd: () => void;
+  onMicLockToggle: () => void;
   children: React.ReactNode;
 }
 
@@ -39,12 +42,14 @@ export default function RadioShell({
   isConnected,
   isEnabled,
   isSpeaking,
+  micLocked,
   participantCount,
   roomClosed,
   diagnostics,
   onActivate,
   onPTTStart,
   onPTTEnd,
+  onMicLockToggle,
   children,
 }: Props) {
   const diagLine = diagnostics ? formatDiagLine(diagnostics, isConnected) : null;
@@ -178,6 +183,61 @@ export default function RadioShell({
         onContextMenu={(e) => e.preventDefault()}
         aria-label={onActivate ? "Activate radio" : "Push to talk"}
       />
+
+      {/* ===== MIC LOCK SWITCH ===== */}
+      {!onActivate && (
+        <div
+          className="absolute flex items-center justify-center gap-[1%]"
+          style={{
+            top: pct(MIC_LOCK.top, IMG.h),
+            left: pct(MIC_LOCK.left, IMG.w),
+            width: pct(MIC_LOCK.right - MIC_LOCK.left, IMG.w),
+          }}
+        >
+          <button
+            onClick={onMicLockToggle}
+            className="flex items-center gap-[4px] focus:outline-none"
+            style={{
+              WebkitTouchCallout: "none",
+              WebkitUserSelect: "none",
+            }}
+            aria-label={micLocked ? "Unlock mic" : "Lock mic on"}
+          >
+            {/* Track */}
+            <div
+              className="relative rounded-full transition-colors duration-200"
+              style={{
+                width: "clamp(24px, 5vw, 32px)",
+                height: "clamp(12px, 2.5vw, 16px)",
+                backgroundColor: micLocked
+                  ? "rgba(197, 48, 48, 0.6)"
+                  : "rgba(100, 100, 100, 0.4)",
+              }}
+            >
+              {/* Thumb */}
+              <div
+                className="absolute top-[1px] rounded-full transition-all duration-200"
+                style={{
+                  width: "clamp(10px, 2.1vw, 14px)",
+                  height: "clamp(10px, 2.1vw, 14px)",
+                  backgroundColor: micLocked ? "#c53030" : "#888",
+                  left: micLocked ? "calc(100% - clamp(10px, 2.1vw, 14px) - 1px)" : "1px",
+                }}
+              />
+            </div>
+            <span
+              className="uppercase tracking-[0.1em]"
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: "clamp(5px, 1.2vw, 8px)",
+                color: micLocked ? "#c53030" : "rgba(100, 100, 100, 0.6)",
+              }}
+            >
+              {micLocked ? "LOCKED" : "LOCK"}
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

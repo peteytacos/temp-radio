@@ -32,6 +32,7 @@ export default function RoomPage() {
   const [showPasswordSet, setShowPasswordSet] = useState(false);
   const [newPasswordInput, setNewPasswordInput] = useState("");
   const [confirmRemovePassword, setConfirmRemovePassword] = useState(false);
+  const [micLocked, setMicLocked] = useState(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
 
@@ -187,6 +188,7 @@ export default function RoomPage() {
     setRadioEnabled((prev) => {
       if (prev) {
         // Stop any active PTT before killing the mic
+        setMicLocked(false);
         ptt.stopPTT();
         // Turning off — stop mic tracks to remove Dynamic Island indicator
         micStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -195,6 +197,25 @@ export default function RoomPage() {
       return !prev;
     });
   }, [ptt]);
+
+  const handleMicLockToggle = useCallback(() => {
+    setMicLocked((prev) => {
+      if (prev) {
+        // Unlocking — stop transmission
+        ptt.stopPTT();
+      } else {
+        // Locking — start transmission
+        ptt.startPTT();
+      }
+      return !prev;
+    });
+  }, [ptt]);
+
+  // When mic is locked, PTT release should not stop transmission
+  const handlePTTEnd = useCallback(() => {
+    if (!micLocked) ptt.stopPTT();
+  }, [micLocked, ptt]);
+
   const noopPTT = useCallback(() => {}, []);
 
   // Stop mic when page is hidden (app backgrounded)
@@ -204,6 +225,7 @@ export default function RoomPage() {
     const handleVisibility = () => {
       if (document.hidden) {
         // Send speaking_stop before killing tracks so remote peers aren't stuck
+        setMicLocked(false);
         stopPTTRef.current();
         if (micStreamRef.current) {
           micStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -232,10 +254,12 @@ export default function RoomPage() {
           isEnabled={false}
           isSpeaking={false}
           participantCount={0}
+          micLocked={false}
           roomClosed={false}
           onActivate={activate}
           onPTTStart={noopPTT}
           onPTTEnd={noopPTT}
+          onMicLockToggle={noopPTT}
         >
           <div
             className="flex-1 flex flex-col items-center justify-center cursor-pointer"
@@ -276,10 +300,12 @@ export default function RoomPage() {
           isConnected={false}
           isEnabled={false}
           isSpeaking={false}
+          micLocked={false}
           participantCount={0}
           roomClosed={false}
           onPTTStart={noopPTT}
           onPTTEnd={noopPTT}
+          onMicLockToggle={noopPTT}
         >
           <div className="flex-1 flex flex-col items-center justify-center">
             <div
@@ -332,10 +358,12 @@ export default function RoomPage() {
           isConnected={false}
           isEnabled={false}
           isSpeaking={false}
+          micLocked={false}
           participantCount={0}
           roomClosed={false}
           onPTTStart={noopPTT}
           onPTTEnd={noopPTT}
+          onMicLockToggle={noopPTT}
         >
           <div className="flex-1 flex flex-col items-center justify-center gap-3">
             <div
@@ -422,11 +450,13 @@ export default function RoomPage() {
         isConnected={room.isConnected}
         isEnabled={radioEnabled}
         isSpeaking={ptt.isSpeaking}
+        micLocked={micLocked}
         participantCount={room.participantCount}
         roomClosed={false}
         diagnostics={room.diagnostics}
         onPTTStart={radioEnabled ? ptt.startPTT : noopPTT}
-        onPTTEnd={radioEnabled ? ptt.stopPTT : noopPTT}
+        onPTTEnd={radioEnabled ? handlePTTEnd : noopPTT}
+        onMicLockToggle={radioEnabled ? handleMicLockToggle : noopPTT}
       >
         {/* Header */}
         <div
