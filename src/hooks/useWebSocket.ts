@@ -12,9 +12,9 @@ interface UseWebSocketOptions {
 
 /** Close codes that mean "don't reconnect" */
 const PERMANENT_CLOSE_CODES = new Set([
-  4002, // Room closed by host
   4004, // Room not found
   4008, // Duplicate tab
+  4010, // Password required/rejected — client handles UI
   4029, // Rate limited
 ]);
 

@@ -1,9 +1,12 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   createRoom,
   getRoom,
+  getOrCreateRoom,
   addParticipant,
   removeParticipant,
+  setRoomPassword,
+  removeRoomPassword,
   closeRoom,
   roomExists,
   MAX_PARTICIPANTS_PER_ROOM,
@@ -40,7 +43,27 @@ describe("rooms", () => {
       expect(room.closed).toBe(false);
       expect(room.participants.size).toBe(0);
       expect(room.nextParticipantId).toBe(0);
+      expect(room.password).toBeNull();
+      expect(room.rejoinTokens.size).toBe(0);
       expect(getRoom(id)).toBe(room);
+      expect(roomExists(id)).toBe(true);
+    });
+  });
+
+  describe("getOrCreateRoom", () => {
+    it("returns existing room if it exists", () => {
+      const id = uniqueRoomId();
+      const created = createRoom(id, "tok");
+      const fetched = getOrCreateRoom(id);
+      expect(fetched).toBe(created);
+    });
+
+    it("auto-creates room if it does not exist", () => {
+      const id = uniqueRoomId();
+      expect(getRoom(id)).toBeUndefined();
+      const room = getOrCreateRoom(id);
+      expect(room.id).toBe(id);
+      expect(room.creatorToken).toBe("");
       expect(roomExists(id)).toBe(true);
     });
   });
@@ -60,6 +83,8 @@ describe("rooms", () => {
       expect(p0).not.toBeNull();
       expect(p0!.id).toBe(0);
       expect(p0!.isCreator).toBe(false);
+      expect(p0!.rejoinToken).toBeTruthy();
+      expect(p0!.hasAuth).toBe(false);
 
       const p1 = addParticipant(id, mockWs());
       expect(p1).not.toBeNull();
@@ -117,6 +142,58 @@ describe("rooms", () => {
       expect(p1!.color).toBeTruthy();
       expect(p0!.color).not.toBe(p1!.color);
     });
+
+    it("restores color when rejoining with valid rejoin token", () => {
+      const id = uniqueRoomId();
+      createRoom(id, "tok");
+
+      const p0 = addParticipant(id, mockWs());
+      const originalColor = p0!.color;
+      const rejoinToken = p0!.rejoinToken;
+
+      // Remove participant (saves rejoin token)
+      removeParticipant(id, p0!.id);
+
+      // Rejoin with the token
+      const p1 = addParticipant(id, mockWs(), undefined, rejoinToken);
+      expect(p1).not.toBeNull();
+      expect(p1!.color).toBe(originalColor);
+    });
+
+    it("assigns new color when rejoining with invalid rejoin token", () => {
+      const id = uniqueRoomId();
+      createRoom(id, "tok");
+
+      const p0 = addParticipant(id, mockWs());
+      removeParticipant(id, p0!.id);
+
+      const p1 = addParticipant(id, mockWs(), undefined, "invalid-token");
+      expect(p1).not.toBeNull();
+      // Should still get a color, just not necessarily the same one
+      expect(p1!.color).toBeTruthy();
+    });
+
+    it("consumes rejoin token on use (single use)", () => {
+      const id = uniqueRoomId();
+      createRoom(id, "tok");
+
+      const p0 = addParticipant(id, mockWs());
+      const originalColor = p0!.color;
+      const rejoinToken = p0!.rejoinToken;
+
+      removeParticipant(id, p0!.id);
+
+      // First rejoin — restores color
+      const p1 = addParticipant(id, mockWs(), undefined, rejoinToken);
+      expect(p1!.color).toBe(originalColor);
+
+      removeParticipant(id, p1!.id);
+
+      // Second attempt with same token — token was consumed, won't match
+      // (p1 got a NEW rejoin token on join)
+      const room = getRoom(id)!;
+      expect(room.rejoinTokens.has(rejoinToken)).toBe(false);
+    });
   });
 
   describe("removeParticipant", () => {
@@ -126,33 +203,54 @@ describe("rooms", () => {
       addParticipant(id, mockWs());
       addParticipant(id, mockWs());
 
-      const { wasCreator, count } = removeParticipant(id, 0);
-      expect(wasCreator).toBe(false);
+      const { count } = removeParticipant(id, 0);
       expect(count).toBe(1);
       expect(getRoom(id)!.participants.size).toBe(1);
     });
 
-    it("returns wasCreator=true when removing creator", () => {
+    it("saves rejoin token on removal", () => {
       const id = uniqueRoomId();
       createRoom(id, "tok");
-      addParticipant(id, mockWs(), "tok");
+      const p = addParticipant(id, mockWs());
+      const rejoinToken = p!.rejoinToken;
 
-      const { wasCreator } = removeParticipant(id, 0);
-      expect(wasCreator).toBe(true);
+      removeParticipant(id, p!.id);
+
+      const room = getRoom(id)!;
+      expect(room.rejoinTokens.has(rejoinToken)).toBe(true);
+      expect(room.rejoinTokens.get(rejoinToken)!.color).toBe(p!.color);
     });
 
     it("handles removal from non-existent room gracefully", () => {
-      const { wasCreator, count } = removeParticipant("nope", 0);
-      expect(wasCreator).toBe(false);
+      const { count } = removeParticipant("nope", 0);
       expect(count).toBe(0);
     });
 
     it("handles removal of non-existent participant gracefully", () => {
       const id = uniqueRoomId();
       createRoom(id, "tok");
-      const { wasCreator, count } = removeParticipant(id, 999);
-      expect(wasCreator).toBe(false);
+      const { count } = removeParticipant(id, 999);
       expect(count).toBe(0);
+    });
+  });
+
+  describe("password", () => {
+    it("sets and removes room password", () => {
+      const id = uniqueRoomId();
+      createRoom(id, "tok");
+
+      expect(getRoom(id)!.password).toBeNull();
+
+      setRoomPassword(id, "secret123");
+      expect(getRoom(id)!.password).toBe("secret123");
+
+      removeRoomPassword(id);
+      expect(getRoom(id)!.password).toBeNull();
+    });
+
+    it("returns false for non-existent room", () => {
+      expect(setRoomPassword("nope", "pw")).toBe(false);
+      expect(removeRoomPassword("nope")).toBe(false);
     });
   });
 
