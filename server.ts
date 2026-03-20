@@ -2,9 +2,11 @@ import { nanoid } from "nanoid";
 import {
   createRoom,
   getRoom,
+  getOrCreateRoom,
   addParticipant,
   removeParticipant,
-  closeRoom,
+  setRoomPassword,
+  removeRoomPassword,
 } from "./src/lib/rooms";
 import { generateRoomId } from "./src/lib/room";
 import { allowMessage } from "./src/lib/rate-limit";
@@ -17,6 +19,8 @@ import { join } from "path";
 interface WSData {
   roomId: string;
   token?: string;
+  password?: string;
+  rejoinToken?: string;
   participantId?: number;
   lastPong: number;
 }
@@ -65,7 +69,9 @@ const server = Bun.serve<WSData>({
     if (wsMatch) {
       const roomId = wsMatch[1];
       const token = url.searchParams.get("token") || undefined;
-      const ok = server.upgrade(req, { data: { roomId, token, lastPong: Date.now() } });
+      const password = url.searchParams.get("password") || undefined;
+      const rejoinToken = url.searchParams.get("rejoinToken") || undefined;
+      const ok = server.upgrade(req, { data: { roomId, token, password, rejoinToken, lastPong: Date.now() } });
       if (ok) return undefined;
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
@@ -127,12 +133,21 @@ const server = Bun.serve<WSData>({
       ws.data.lastPong = Date.now();
       allSockets.add(ws);
 
-      const { roomId, token } = ws.data;
-      const room = getRoom(roomId);
-      if (!room || room.closed) {
-        allSockets.delete(ws);
-        ws.close(4004, "Room not found");
-        return;
+      const { roomId, token, password, rejoinToken } = ws.data;
+
+      // Rooms are persistent channels — auto-create if needed
+      const room = getOrCreateRoom(roomId);
+
+      // Check password if room is locked
+      if (room.password) {
+        if (!password || password !== room.password) {
+          safeSend(ws, JSON.stringify({
+            type: room.password && !password ? "password_required" : "password_rejected",
+          }));
+          allSockets.delete(ws);
+          ws.close(4010, "Password required");
+          return;
+        }
       }
 
       // Detect duplicate tabs: close any existing connection with the same token
@@ -144,12 +159,17 @@ const server = Bun.serve<WSData>({
         }
       }
 
-      const participant = addParticipant(roomId, ws, token);
+      const participant = addParticipant(roomId, ws, token, rejoinToken);
       if (!participant) {
         // Room full or closed
         safeSend(ws, JSON.stringify({ type: "room_full" }));
         ws.close(4003, "Room full");
         return;
+      }
+
+      // Mark as authenticated if they provided the correct password
+      if (room.password && password === room.password) {
+        participant.hasAuth = true;
       }
 
       ws.data.participantId = participant.id;
@@ -164,6 +184,8 @@ const server = Bun.serve<WSData>({
           id: participant.id,
           color: participant.color,
           isCreator: participant.isCreator,
+          rejoinToken: participant.rejoinToken,
+          hasPassword: !!room.password,
           participants: participantList,
         })
       );
@@ -225,6 +247,23 @@ const server = Bun.serve<WSData>({
             candidate: msg.candidate,
           });
           break;
+        case "set_password": {
+          setRoomPassword(roomId, msg.password);
+          const setter = room.participants.get(participantId);
+          if (setter) setter.hasAuth = true;
+          broadcastToRoom(roomId, { type: "password_set" });
+          break;
+        }
+        case "remove_password": {
+          const remover = room.participants.get(participantId);
+          if (!remover?.hasAuth) break;
+          removeRoomPassword(roomId);
+          for (const [, p] of room.participants) {
+            p.hasAuth = false;
+          }
+          broadcastToRoom(roomId, { type: "password_removed" });
+          break;
+        }
       }
     },
 
@@ -237,16 +276,12 @@ const server = Bun.serve<WSData>({
       const { roomId, participantId } = ws.data;
       if (participantId === undefined) return;
 
-      const { wasCreator, count } = removeParticipant(roomId, participantId);
-      if (wasCreator) {
-        closeRoom(roomId);
-      } else {
-        broadcastToRoom(roomId, {
-          type: "participant_left",
-          id: participantId,
-          count,
-        });
-      }
+      const { count } = removeParticipant(roomId, participantId);
+      broadcastToRoom(roomId, {
+        type: "participant_left",
+        id: participantId,
+        count,
+      });
     },
   },
 });

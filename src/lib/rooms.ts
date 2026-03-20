@@ -1,3 +1,4 @@
+import { nanoid } from "nanoid";
 import { getColor } from "./colors";
 
 export const MAX_PARTICIPANTS_PER_ROOM = 16;
@@ -8,6 +9,9 @@ export interface Participant {
   id: number;
   color: string;
   isCreator: boolean;
+  rejoinToken: string;
+  /** True if this participant authenticated with the room password */
+  hasAuth: boolean;
 }
 
 export interface Room {
@@ -17,6 +21,10 @@ export interface Room {
   nextParticipantId: number;
   createdAt: number;
   closed: boolean;
+  /** If set, new joiners must provide this password */
+  password: string | null;
+  /** Maps rejoinToken → saved color for participants who left */
+  rejoinTokens: Map<string, { color: string }>;
 }
 
 const rooms = new Map<string, Room>();
@@ -29,8 +37,22 @@ export function createRoom(id: string, token: string): Room {
     nextParticipantId: 0,
     createdAt: Date.now(),
     closed: false,
+    password: null,
+    rejoinTokens: new Map(),
   };
   rooms.set(id, room);
+  return room;
+}
+
+/**
+ * Get an existing room, or auto-create it if it doesn't exist.
+ * Rooms are persistent channels — they're always joinable by URL.
+ */
+export function getOrCreateRoom(id: string): Room {
+  let room = rooms.get(id);
+  if (!room) {
+    room = createRoom(id, "");
+  }
   return room;
 }
 
@@ -42,18 +64,36 @@ export function addParticipant(
   roomId: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ws: any,
-  token?: string
+  token?: string,
+  rejoinToken?: string
 ): Participant | null {
   const room = rooms.get(roomId);
   if (!room || room.closed) return null;
 
   if (room.participants.size >= MAX_PARTICIPANTS_PER_ROOM) return null;
 
-  const id = room.nextParticipantId++;
-  const color = getColor(id);
-  const isCreator = !!token && token === room.creatorToken;
+  // Check if rejoining — restore color if rejoin token matches
+  let color: string;
+  if (rejoinToken && room.rejoinTokens.has(rejoinToken)) {
+    color = room.rejoinTokens.get(rejoinToken)!.color;
+    room.rejoinTokens.delete(rejoinToken);
+  } else {
+    const id = room.nextParticipantId; // use current ID for color
+    color = getColor(id);
+  }
 
-  const participant: Participant = { ws, id, color, isCreator };
+  const id = room.nextParticipantId++;
+  const isCreator = !!token && token === room.creatorToken;
+  const newRejoinToken = nanoid(16);
+
+  const participant: Participant = {
+    ws,
+    id,
+    color,
+    isCreator,
+    rejoinToken: newRejoinToken,
+    hasAuth: false,
+  };
   room.participants.set(id, participant);
   return participant;
 }
@@ -61,15 +101,32 @@ export function addParticipant(
 export function removeParticipant(
   roomId: string,
   participantId: number
-): { wasCreator: boolean; count: number } {
+): { count: number } {
   const room = rooms.get(roomId);
-  if (!room) return { wasCreator: false, count: 0 };
+  if (!room) return { count: 0 };
 
   const participant = room.participants.get(participantId);
-  const wasCreator = participant?.isCreator ?? false;
+  if (participant) {
+    // Save rejoin token → color mapping so they can rejoin with same color
+    room.rejoinTokens.set(participant.rejoinToken, { color: participant.color });
+  }
   room.participants.delete(participantId);
 
-  return { wasCreator, count: room.participants.size };
+  return { count: room.participants.size };
+}
+
+export function setRoomPassword(roomId: string, password: string): boolean {
+  const room = rooms.get(roomId);
+  if (!room) return false;
+  room.password = password;
+  return true;
+}
+
+export function removeRoomPassword(roomId: string): boolean {
+  const room = rooms.get(roomId);
+  if (!room) return false;
+  room.password = null;
+  return true;
 }
 
 export function closeRoom(id: string) {
@@ -94,13 +151,3 @@ export function closeRoom(id: string) {
 export function roomExists(id: string): boolean {
   return rooms.has(id);
 }
-
-// Clean up abandoned rooms (created but never joined within 30 min)
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, room] of rooms) {
-    if (room.participants.size === 0 && now - room.createdAt > 30 * 60 * 1000) {
-      rooms.delete(id);
-    }
-  }
-}, 60_000);

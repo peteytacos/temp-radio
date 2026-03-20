@@ -176,14 +176,13 @@ describe("server integration: message routing", () => {
 });
 
 describe("server integration: leave flow", () => {
-  it("participant_left broadcasts when non-creator leaves", () => {
+  it("participant_left broadcasts when any participant leaves", () => {
     const ws1 = mockWs();
     const ws2 = mockWs();
     addParticipant(roomId, ws1, "creator-token");
     const p2 = addParticipant(roomId, ws2)!;
 
-    const { wasCreator, count } = removeParticipant(roomId, p2.id);
-    expect(wasCreator).toBe(false);
+    const { count } = removeParticipant(roomId, p2.id);
     expect(count).toBe(1);
 
     broadcastToRoom(roomId, {
@@ -198,22 +197,19 @@ describe("server integration: leave flow", () => {
     expect(msg.id).toBe(p2.id);
   });
 
-  it("room closes when creator leaves", () => {
+  it("room persists when creator leaves — remaining participants stay", () => {
     const ws1 = mockWs();
     const ws2 = mockWs();
     const p1 = addParticipant(roomId, ws1, "creator-token")!;
     addParticipant(roomId, ws2);
 
-    const { wasCreator } = removeParticipant(roomId, p1.id);
-    expect(wasCreator).toBe(true);
+    const { count } = removeParticipant(roomId, p1.id);
+    expect(count).toBe(1);
 
-    // Server would call closeRoom here
-    closeRoom(roomId);
-
-    // Room should no longer exist
-    expect(getRoom(roomId)).toBeUndefined();
-    // ws2 should have received room_closed
-    expect(ws2._sent).toContain(JSON.stringify({ type: "room_closed" }));
+    // Room should still exist
+    expect(getRoom(roomId)).toBeDefined();
+    // ws2 should NOT have received room_closed
+    expect(ws2._sent).not.toContain(JSON.stringify({ type: "room_closed" }));
   });
 });
 

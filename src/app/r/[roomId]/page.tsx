@@ -27,14 +27,21 @@ export default function RoomPage() {
   const [radioEnabled, setRadioEnabled] = useState(true);
   const [micDenied, setMicDenied] = useState(false);
   const [rtcConfig, setRtcConfig] = useState<RTCConfiguration | null>(null);
+  const [password, setPassword] = useState<string | undefined>(undefined);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [showPasswordSet, setShowPasswordSet] = useState(false);
+  const [newPasswordInput, setNewPasswordInput] = useState("");
+  const [confirmRemovePassword, setConfirmRemovePassword] = useState(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
 
-  // Read token from sessionStorage once roomId is known
+  // Read token and password from sessionStorage once roomId is known
   useEffect(() => {
     if (!roomId) return;
     const stored = sessionStorage.getItem(`temp-radio-token-${roomId}`);
     if (stored) setToken(stored);
+    const storedPw = sessionStorage.getItem(`temp-radio-pw-${roomId}`);
+    if (storedPw) setPassword(storedPw);
     setTokenReady(true);
   }, [roomId]);
 
@@ -73,7 +80,7 @@ export default function RoomPage() {
     setActivated(true);
   }, []);
 
-  const room = useRoom(roomId, tokenReady ? token : undefined, audioCtxRef.current, micStreamRef.current, activated && tokenReady, rtcConfig);
+  const room = useRoom(roomId, tokenReady ? token : undefined, audioCtxRef.current, micStreamRef.current, activated && tokenReady, rtcConfig, password);
   const ptt = usePTT(audioCtxRef.current, room.send, room.isConnected, micStreamRef.current);
 
   // Prevent screen from sleeping while radio is active
@@ -147,6 +154,35 @@ export default function RoomPage() {
     router.push("/");
   }, [router]);
 
+  const handlePasswordSubmit = useCallback(() => {
+    if (!passwordInput.trim()) return;
+    const pw = passwordInput.trim();
+    setPassword(pw);
+    sessionStorage.setItem(`temp-radio-pw-${roomId}`, pw);
+    setPasswordInput("");
+  }, [passwordInput, roomId]);
+
+  const handleSetPassword = useCallback(() => {
+    if (!newPasswordInput.trim()) return;
+    room.send(JSON.stringify({ type: "set_password", password: newPasswordInput.trim() }));
+    // Store locally so we can rejoin with it
+    setPassword(newPasswordInput.trim());
+    sessionStorage.setItem(`temp-radio-pw-${roomId}`, newPasswordInput.trim());
+    setNewPasswordInput("");
+    setShowPasswordSet(false);
+  }, [newPasswordInput, room.send, roomId]);
+
+  const handleRemovePassword = useCallback(() => {
+    if (!confirmRemovePassword) {
+      setConfirmRemovePassword(true);
+      return;
+    }
+    room.send(JSON.stringify({ type: "remove_password" }));
+    setPassword(undefined);
+    sessionStorage.removeItem(`temp-radio-pw-${roomId}`);
+    setConfirmRemovePassword(false);
+  }, [confirmRemovePassword, room.send, roomId]);
+
   const toggleRadio = useCallback(() => {
     setRadioEnabled((prev) => {
       if (prev) {
@@ -179,6 +215,13 @@ export default function RoomPage() {
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
+  // Reset confirm state when password is removed by someone else
+  useEffect(() => {
+    if (!room.hasPassword) setConfirmRemovePassword(false);
+  }, [room.hasPassword]);
+
+  const monoStyle = { fontFamily: "var(--font-mono)" };
+
   // ===== ACTIVATION GATE =====
   if (!activated) {
     return (
@@ -202,7 +245,7 @@ export default function RoomPage() {
               className="text-center font-bold tracking-[0.2em] uppercase animate-pulse"
               style={{
                 color: "#265327",
-                fontFamily: "var(--font-mono)",
+                ...monoStyle,
                 fontSize: "clamp(10px, 2.5vw, 16px)",
               }}
             >
@@ -212,7 +255,7 @@ export default function RoomPage() {
               className="text-center mt-2 tracking-[0.1em] uppercase"
               style={{
                 color: "rgba(38, 83, 39, 0.5)",
-                fontFamily: "var(--font-mono)",
+                ...monoStyle,
                 fontSize: "clamp(7px, 1.6vw, 10px)",
               }}
             >
@@ -243,7 +286,7 @@ export default function RoomPage() {
               className="font-bold tracking-[0.2em] uppercase"
               style={{
                 color: "#265327",
-                fontFamily: "var(--font-mono)",
+                ...monoStyle,
                 fontSize: "clamp(10px, 2.5vw, 16px)",
               }}
             >
@@ -253,7 +296,7 @@ export default function RoomPage() {
               className="mt-2 tracking-[0.1em] uppercase"
               style={{
                 color: "rgba(38, 83, 39, 0.5)",
-                fontFamily: "var(--font-mono)",
+                ...monoStyle,
                 fontSize: "clamp(7px, 1.6vw, 10px)",
               }}
             >
@@ -265,7 +308,7 @@ export default function RoomPage() {
               onClick={handleNewRadio}
               className="px-2 py-1 rounded transition-colors"
               style={{
-                fontFamily: "var(--font-mono)",
+                ...monoStyle,
                 fontSize: "clamp(6px, 1.4vw, 9px)",
                 color: "#265327",
                 backgroundColor: "rgba(38, 83, 39, 0.1)",
@@ -280,8 +323,8 @@ export default function RoomPage() {
     );
   }
 
-  // ===== ROOM CLOSED =====
-  if (room.roomClosed) {
+  // ===== PASSWORD REQUIRED =====
+  if (room.passwordNeeded) {
     return (
       <div className="min-h-screen bg-[#0a0a06] flex items-center justify-center">
         <RadioShell
@@ -290,38 +333,73 @@ export default function RoomPage() {
           isEnabled={false}
           isSpeaking={false}
           participantCount={0}
-          roomClosed={true}
+          roomClosed={false}
           onPTTStart={noopPTT}
           onPTTEnd={noopPTT}
         >
-          <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="flex-1 flex flex-col items-center justify-center gap-3">
             <div
               className="font-bold tracking-[0.2em] uppercase"
               style={{
                 color: "#265327",
-                fontFamily: "var(--font-mono)",
+                ...monoStyle,
                 fontSize: "clamp(10px, 2.5vw, 16px)",
               }}
             >
-              STATION CLOSED
+              STATION LOCKED
             </div>
-            <div
-              className="mt-2 tracking-[0.1em] uppercase"
-              style={{
-                color: "rgba(38, 83, 39, 0.5)",
-                fontFamily: "var(--font-mono)",
-                fontSize: "clamp(7px, 1.6vw, 10px)",
-              }}
+            {room.passwordWrong && (
+              <div
+                className="tracking-[0.1em] uppercase"
+                style={{
+                  color: "#c53030",
+                  ...monoStyle,
+                  fontSize: "clamp(7px, 1.6vw, 10px)",
+                }}
+              >
+                WRONG PASSWORD
+              </div>
+            )}
+            <form
+              onSubmit={(e) => { e.preventDefault(); handlePasswordSubmit(); }}
+              className="flex gap-1.5 items-center"
             >
-              The host has left
-            </div>
+              <input
+                type="password"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                placeholder="ENTER PASSWORD"
+                autoFocus
+                className="px-2 py-1 rounded bg-transparent outline-none uppercase tracking-[0.1em]"
+                style={{
+                  ...monoStyle,
+                  fontSize: "clamp(7px, 1.6vw, 10px)",
+                  color: "#265327",
+                  border: "1px solid rgba(38, 83, 39, 0.4)",
+                  width: "clamp(100px, 30vw, 180px)",
+                }}
+              />
+              <button
+                type="submit"
+                className="px-2 py-1 rounded transition-colors"
+                style={{
+                  ...monoStyle,
+                  fontSize: "clamp(6px, 1.4vw, 9px)",
+                  color: "#265327",
+                  backgroundColor: "rgba(38, 83, 39, 0.1)",
+                  border: "1px solid rgba(38, 83, 39, 0.2)",
+                }}
+              >
+                JOIN
+              </button>
+            </form>
           </div>
           <div className="flex gap-1.5 mt-[2%]">
             <button
               onClick={handleNewRadio}
               className="px-2 py-1 rounded transition-colors"
               style={{
-                fontFamily: "var(--font-mono)",
+                ...monoStyle,
                 fontSize: "clamp(6px, 1.4vw, 9px)",
                 color: "#265327",
                 backgroundColor: "rgba(38, 83, 39, 0.1)",
@@ -355,7 +433,7 @@ export default function RoomPage() {
           className="text-center font-bold tracking-[0.12em] py-[1.5%] rounded-sm mb-[2%]"
           style={{
             fontSize: "clamp(7px, 2vw, 12px)",
-            fontFamily: "var(--font-mono)",
+            ...monoStyle,
             color: "#265327",
             border: "1px solid rgba(38, 83, 39, 0.25)",
           }}
@@ -376,7 +454,7 @@ export default function RoomPage() {
           className="flex justify-between items-center mt-[2%]"
           style={{
             color: "#265327",
-            fontFamily: "var(--font-mono)",
+            ...monoStyle,
             fontSize: "clamp(7px, 1.6vw, 11px)",
           }}
         >
@@ -408,7 +486,7 @@ export default function RoomPage() {
           <div
             className="text-center mt-[2%] tracking-[0.05em] uppercase"
             style={{
-              fontFamily: "var(--font-mono)",
+              ...monoStyle,
               fontSize: "clamp(6px, 1.4vw, 8px)",
               color: "#c53030",
             }}
@@ -422,7 +500,7 @@ export default function RoomPage() {
           <div
             className="text-center mt-[2%] tracking-[0.05em] uppercase"
             style={{
-              fontFamily: "var(--font-mono)",
+              ...monoStyle,
               fontSize: "clamp(6px, 1.4vw, 8px)",
               color: "#c53030",
             }}
@@ -431,13 +509,64 @@ export default function RoomPage() {
           </div>
         )}
 
+        {/* Password set inline form */}
+        {showPasswordSet && (
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleSetPassword(); }}
+            className="flex gap-1.5 items-center justify-center mt-[2%]"
+          >
+            <input
+              type="password"
+              value={newPasswordInput}
+              onChange={(e) => setNewPasswordInput(e.target.value)}
+              placeholder="SET PASSWORD"
+              autoFocus
+              className="px-2 py-1 rounded bg-transparent outline-none uppercase tracking-[0.1em]"
+              style={{
+                ...monoStyle,
+                fontSize: "clamp(6px, 1.4vw, 9px)",
+                color: "#265327",
+                border: "1px solid rgba(38, 83, 39, 0.4)",
+                width: "clamp(80px, 25vw, 150px)",
+              }}
+            />
+            <button
+              type="submit"
+              className="px-2 py-1 rounded transition-colors"
+              style={{
+                ...monoStyle,
+                fontSize: "clamp(6px, 1.4vw, 9px)",
+                color: "#265327",
+                backgroundColor: "rgba(38, 83, 39, 0.1)",
+                border: "1px solid rgba(38, 83, 39, 0.2)",
+              }}
+            >
+              SET
+            </button>
+            <button
+              type="button"
+              onClick={() => { setShowPasswordSet(false); setNewPasswordInput(""); }}
+              className="px-2 py-1 rounded transition-colors"
+              style={{
+                ...monoStyle,
+                fontSize: "clamp(6px, 1.4vw, 9px)",
+                color: "#265327",
+                backgroundColor: "rgba(38, 83, 39, 0.1)",
+                border: "1px solid rgba(38, 83, 39, 0.2)",
+              }}
+            >
+              CANCEL
+            </button>
+          </form>
+        )}
+
         {/* Controls row */}
         <div className="flex gap-1.5 mt-[2%]">
           <button
             onClick={handleNewRadio}
             className="px-2 py-1 rounded transition-colors"
             style={{
-              fontFamily: "var(--font-mono)",
+              ...monoStyle,
               fontSize: "clamp(6px, 1.4vw, 9px)",
               color: "#265327",
               backgroundColor: "rgba(38, 83, 39, 0.1)",
@@ -450,7 +579,7 @@ export default function RoomPage() {
             onClick={handleShare}
             className="px-2 py-1 rounded transition-colors"
             style={{
-              fontFamily: "var(--font-mono)",
+              ...monoStyle,
               fontSize: "clamp(6px, 1.4vw, 9px)",
               color: "#265327",
               backgroundColor: "rgba(38, 83, 39, 0.1)",
@@ -459,6 +588,35 @@ export default function RoomPage() {
           >
             SHARE
           </button>
+          {room.hasPassword ? (
+            <button
+              onClick={handleRemovePassword}
+              className="px-2 py-1 rounded transition-colors"
+              style={{
+                ...monoStyle,
+                fontSize: "clamp(6px, 1.4vw, 9px)",
+                color: confirmRemovePassword ? "#c53030" : "#265327",
+                backgroundColor: confirmRemovePassword ? "rgba(197, 48, 48, 0.1)" : "rgba(38, 83, 39, 0.1)",
+                border: `1px solid ${confirmRemovePassword ? "rgba(197, 48, 48, 0.3)" : "rgba(38, 83, 39, 0.2)"}`,
+              }}
+            >
+              {confirmRemovePassword ? "CONFIRM RM PW" : "RM PW"}
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowPasswordSet(true)}
+              className="px-2 py-1 rounded transition-colors"
+              style={{
+                ...monoStyle,
+                fontSize: "clamp(6px, 1.4vw, 9px)",
+                color: "#265327",
+                backgroundColor: "rgba(38, 83, 39, 0.1)",
+                border: "1px solid rgba(38, 83, 39, 0.2)",
+              }}
+            >
+              ADD PW
+            </button>
+          )}
           {/* ON/OFF button hidden for now */}
         </div>
 

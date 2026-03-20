@@ -25,13 +25,31 @@ interface RtcIceMsg {
   candidate: Record<string, unknown>;
 }
 
-export type ValidClientMessage = SpeakingMsg | RtcOfferMsg | RtcAnswerMsg | RtcIceMsg;
+interface SetPasswordMsg {
+  type: "set_password";
+  password: string;
+}
+
+interface RemovePasswordMsg {
+  type: "remove_password";
+}
+
+export type ValidClientMessage =
+  | SpeakingMsg
+  | RtcOfferMsg
+  | RtcAnswerMsg
+  | RtcIceMsg
+  | SetPasswordMsg
+  | RemovePasswordMsg;
 
 /** Max SDP size (64 KB — typical offers are ~2-4 KB) */
 const MAX_SDP_LENGTH = 65_536;
 
 /** Max raw message size (128 KB) */
 const MAX_MESSAGE_LENGTH = 131_072;
+
+/** Max password length */
+const MAX_PASSWORD_LENGTH = 128;
 
 export function validateMessage(
   raw: string,
@@ -76,6 +94,15 @@ export function validateMessage(
       if (!roomParticipantIds.has(targetId)) return null;
       return { type: "rtc_ice", targetId, candidate: candidate as Record<string, unknown> };
     }
+
+    case "set_password": {
+      const password = msg.password;
+      if (typeof password !== "string" || password.length === 0 || password.length > MAX_PASSWORD_LENGTH) return null;
+      return { type: "set_password", password };
+    }
+
+    case "remove_password":
+      return { type: "remove_password" };
 
     default:
       return null;

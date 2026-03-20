@@ -11,7 +11,8 @@ export function useRoom(
   audioCtx: AudioContext | null,
   micStream: MediaStream | null,
   ready: boolean = true,
-  rtcConfig: RTCConfiguration | null = null
+  rtcConfig: RTCConfiguration | null = null,
+  password: string | undefined = undefined,
 ) {
   const [myId, setMyId] = useState<number | null>(null);
   const [myColor, setMyColor] = useState("#265327");
@@ -25,10 +26,26 @@ export function useRoom(
   );
   const [roomClosed, setRoomClosed] = useState(false);
   const [roomFull, setRoomFull] = useState(false);
+  const [passwordNeeded, setPasswordNeeded] = useState(false);
+  const [passwordWrong, setPasswordWrong] = useState(false);
+  const [hasPassword, setHasPassword] = useState(false);
 
-  const wsUrl = !ready || roomClosed || roomFull
-    ? null
-    : `/ws/${roomId}${token ? `?token=${token}` : ""}`;
+  // Build WS URL with all query params
+  const buildWsUrl = () => {
+    if (!ready || roomClosed || roomFull || passwordNeeded) return null;
+    const params = new URLSearchParams();
+    if (token) params.set("token", token);
+    if (password) params.set("password", password);
+    // Read rejoin token from sessionStorage
+    if (typeof window !== "undefined") {
+      const rejoin = sessionStorage.getItem(`temp-radio-rejoin-${roomId}`);
+      if (rejoin) params.set("rejoinToken", rejoin);
+    }
+    const qs = params.toString();
+    return `/ws/${roomId}${qs ? `?${qs}` : ""}`;
+  };
+
+  const wsUrl = buildWsUrl();
 
   const { send, state } = useWebSocket(wsUrl, {
     onMessage: (event) => {
@@ -40,10 +57,20 @@ export function useRoom(
           setMyId(msg.id);
           setMyColor(msg.color);
           setIsCreator(msg.isCreator);
+          setHasPassword(msg.hasPassword);
+          setPasswordNeeded(false);
+          setPasswordWrong(false);
           setParticipants(
             new Map(msg.participants.map((p) => [p.id, p.color]))
           );
           setParticipantCount(msg.participants.length);
+          // Store rejoin token for future reconnects
+          if (typeof window !== "undefined") {
+            sessionStorage.setItem(
+              `temp-radio-rejoin-${roomId}`,
+              msg.rejoinToken
+            );
+          }
           // Destroy any stale peers from a previous connection, then
           // initiate WebRTC to every existing participant in the room.
           // This handles both first join and WS reconnection scenarios.
@@ -107,6 +134,16 @@ export function useRoom(
           webrtc.handleIceCandidate(msg.fromId, msg.candidate);
           break;
 
+        case "password_required":
+          setPasswordNeeded(true);
+          setPasswordWrong(false);
+          break;
+
+        case "password_rejected":
+          setPasswordNeeded(true);
+          setPasswordWrong(true);
+          break;
+
         case "room_closed":
           setRoomClosed(true);
           break;
@@ -114,11 +151,21 @@ export function useRoom(
         case "room_full":
           setRoomFull(true);
           break;
+
+        case "password_set":
+          setHasPassword(true);
+          break;
+
+        case "password_removed":
+          setHasPassword(false);
+          break;
       }
     },
     onClose: (event) => {
-      if (event.code === 4004) {
-        setRoomClosed(true);
+      if (event.code === 4010) {
+        // Password required or rejected — the message handler already
+        // set the correct state from the message sent before close
+        setPasswordNeeded(true);
       }
     },
   });
@@ -146,6 +193,9 @@ export function useRoom(
     diagnostics: webrtc.diagnostics,
     roomClosed,
     roomFull,
+    passwordNeeded,
+    passwordWrong,
+    hasPassword,
     relayWarning: webrtc.relayWarning,
     isConnected: state === "open",
     send: sendString,
