@@ -29,10 +29,23 @@ export function usePTT(
       .catch(() => {});
   }, [audioCtx]);
 
-  // Set up analyser for local waveform visualization (once per stream)
-  // Uses a cloned stream so it doesn't interfere with WebRTC on iOS
+  // Set up analyser for local waveform visualization.
+  // Uses a cloned stream so it doesn't interfere with WebRTC on iOS.
+  // Re-creates when micStream changes (e.g. after page visibility restore).
   useEffect(() => {
-    if (!audioCtx || !micStream || analyserRef.current) return;
+    if (!audioCtx || !micStream) return;
+
+    // Clean up previous analyser if stream changed
+    if (sourceNodeRef.current) {
+      sourceNodeRef.current.disconnect();
+      sourceNodeRef.current = null;
+    }
+    if (cloneRef.current) {
+      cloneRef.current.getTracks().forEach((t) => t.stop());
+      cloneRef.current = null;
+    }
+    analyserRef.current = null;
+
     const clone = micStream.clone();
     // Keep clone's track enabled so analyser always has data (original track toggles for WebRTC)
     clone.getAudioTracks().forEach((t) => { t.enabled = true; });

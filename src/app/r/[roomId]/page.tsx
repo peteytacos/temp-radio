@@ -33,6 +33,7 @@ export default function RoomPage() {
   const [newPasswordInput, setNewPasswordInput] = useState("");
   const [confirmRemovePassword, setConfirmRemovePassword] = useState(false);
   const [micLocked, setMicLocked] = useState(false);
+  const [micGeneration, setMicGeneration] = useState(0);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
 
@@ -218,7 +219,7 @@ export default function RoomPage() {
 
   const noopPTT = useCallback(() => {}, []);
 
-  // Stop mic when page is hidden (app backgrounded)
+  // Stop mic when page is hidden (app backgrounded), re-acquire when visible
   const stopPTTRef = useRef(ptt.stopPTT);
   stopPTTRef.current = ptt.stopPTT;
   useEffect(() => {
@@ -231,11 +232,30 @@ export default function RoomPage() {
           micStreamRef.current.getTracks().forEach((t) => t.stop());
           micStreamRef.current = null;
         }
+      } else {
+        // Page visible again — re-acquire mic stream
+        if (!micStreamRef.current && activated) {
+          navigator.mediaDevices
+            .getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+              },
+            })
+            .then((stream) => {
+              stream.getAudioTracks().forEach((t) => { t.enabled = false; });
+              micStreamRef.current = stream;
+              // Bump generation to trigger re-render so hooks pick up new stream
+              setMicGeneration((g) => g + 1);
+            })
+            .catch(() => {});
+        }
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, []);
+  }, [activated]);
 
   // Reset confirm state when password is removed by someone else
   useEffect(() => {

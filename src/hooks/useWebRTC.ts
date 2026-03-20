@@ -321,6 +321,27 @@ export function useWebRTC(
     }
   }, []);
 
+  // When the mic stream changes (e.g. re-acquired after page visibility restore),
+  // replace the audio track on all existing peer connections so audio resumes
+  // without tearing down WebRTC.
+  const prevMicStreamRef = useRef(micStream);
+  useEffect(() => {
+    if (micStream === prevMicStreamRef.current) return;
+    prevMicStreamRef.current = micStream;
+    if (!micStream) return;
+    const newTrack = micStream.getAudioTracks()[0];
+    if (!newTrack) return;
+    for (const [, state] of peersRef.current) {
+      const sender = state.pc.getSenders().find((s) => s.track?.kind === "audio" || (!s.track && s.kind === undefined));
+      if (sender) {
+        sender.replaceTrack(newTrack).catch(() => {});
+      } else {
+        // No existing sender — add track (handles case where peer was created with no mic)
+        try { state.pc.addTrack(newTrack, micStream); } catch { /* ignore */ }
+      }
+    }
+  }, [micStream]);
+
   useEffect(() => {
     return () => {
       for (const [, state] of peersRef.current) {
