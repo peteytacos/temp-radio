@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useWebSocket } from "./useWebSocket";
 import { useWebRTC } from "./useWebRTC";
 import type { ServerMessage } from "@/lib/ws-protocol";
@@ -30,17 +30,22 @@ export function useRoom(
   const [passwordWrong, setPasswordWrong] = useState(false);
   const [hasPassword, setHasPassword] = useState(false);
 
-  // Build WS URL with all query params
+  // Read rejoin token once and cache in a ref so it doesn't change the
+  // WS URL on every render (welcome stores a new token → re-render →
+  // URL change → reconnect → infinite loop).
+  const rejoinTokenRef = useRef<string | null>(
+    typeof window !== "undefined"
+      ? sessionStorage.getItem(`temp-radio-rejoin-${roomId}`)
+      : null
+  );
+
+  // Build WS URL with all query params — stable between renders
   const buildWsUrl = () => {
     if (!ready || roomClosed || roomFull || passwordNeeded) return null;
     const params = new URLSearchParams();
     if (token) params.set("token", token);
     if (password) params.set("password", password);
-    // Read rejoin token from sessionStorage
-    if (typeof window !== "undefined") {
-      const rejoin = sessionStorage.getItem(`temp-radio-rejoin-${roomId}`);
-      if (rejoin) params.set("rejoinToken", rejoin);
-    }
+    if (rejoinTokenRef.current) params.set("rejoinToken", rejoinTokenRef.current);
     const qs = params.toString();
     return `/ws/${roomId}${qs ? `?${qs}` : ""}`;
   };
